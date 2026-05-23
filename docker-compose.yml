@@ -1,0 +1,118 @@
+version: "3.9"
+
+networks:
+  natsui:
+    driver: bridge
+
+volumes:
+  nats1-data:
+  nats2-data:
+  nats3-data:
+
+services:
+  # ── NATS Cluster (3-node JetStream) ────────────────────────────
+  nats1:
+    image: nats:2.10-alpine
+    container_name: nats1
+    hostname: nats1
+    ports:
+      - "4222:4222"   # client
+      - "8222:8222"   # monitoring
+      - "6222:6222"   # cluster routes
+    command: >
+      -n nats1
+      -cluster nats://0.0.0.0:6222
+      -routes nats://nats2:6222,nats://nats3:6222
+      -js
+      -sd /data
+      -m 8222
+    volumes:
+      - nats1-data:/data
+    networks:
+      - natsui
+    labels:
+      app: nats
+      natsui.discover: "true"
+
+  nats2:
+    image: nats:2.10-alpine
+    container_name: nats2
+    hostname: nats2
+    ports:
+      - "4223:4222"
+      - "8223:8222"
+      - "6223:6222"
+    command: >
+      -n nats2
+      -cluster nats://0.0.0.0:6222
+      -routes nats://nats1:6222,nats://nats3:6222
+      -js
+      -sd /data
+      -m 8222
+    volumes:
+      - nats2-data:/data
+    networks:
+      - natsui
+    labels:
+      app: nats
+      natsui.discover: "true"
+
+  nats3:
+    image: nats:2.10-alpine
+    container_name: nats3
+    hostname: nats3
+    ports:
+      - "4224:4222"
+      - "8224:8222"
+      - "6224:6222"
+    command: >
+      -n nats3
+      -cluster nats://0.0.0.0:6222
+      -routes nats://nats1:6222,nats://nats2:6222
+      -js
+      -sd /data
+      -m 8222
+    volumes:
+      - nats3-data:/data
+    networks:
+      - natsui
+    labels:
+      app: nats
+      natsui.discover: "true"
+
+  # ── NatsUI Backend ────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: natsui-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - NATS_URL=nats://nats1:4222,nats://nats2:4222,nats://nats3:4222
+      - LOG_LEVEL=info
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - natsui
+    depends_on:
+      - nats1
+      - nats2
+      - nats3
+
+  # ── NatsUI Frontend ───────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: natsui-frontend
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_BASE=http://localhost:8080
+      - VITE_WS_BASE=ws://localhost:8080
+    networks:
+      - natsui
+    depends_on:
+      - backend

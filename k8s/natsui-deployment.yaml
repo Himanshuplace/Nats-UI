@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: natsui-backend
+  namespace: natsui
+  labels:
+    app: natsui-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: natsui-backend
+  template:
+    metadata:
+      labels:
+        app: natsui-backend
+    spec:
+      serviceAccountName: natsui
+      containers:
+        - name: backend
+          image: natsui-backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: PORT
+              value: "8080"
+            - name: NATS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: natsui-config
+                  key: nats-url
+            - name: LOG_LEVEL
+              value: "info"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: natsui-frontend
+  namespace: natsui
+  labels:
+    app: natsui-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: natsui-frontend
+  template:
+    metadata:
+      labels:
+        app: natsui-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: natsui-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

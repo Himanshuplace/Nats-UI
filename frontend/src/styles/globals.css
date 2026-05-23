@@ -1,0 +1,124 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "liga" 1, "calt" 1, "kern" 1;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-bg-base text-text-primary font-mono;
+    overflow: hidden;
+  }
+
+  /* Thin scrollbars */
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-bg-base;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-bg-border-strong rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-text-muted;
+  }
+
+  /* Selection color */
+  ::selection {
+    @apply bg-accent-cyan/20 text-accent-cyan;
+  }
+
+  /* Focus ring */
+  :focus-visible {
+    @apply outline-none ring-1 ring-accent-cyan/50;
+  }
+}
+
+@layer components {
+  /* Reusable form input */
+  .input-base {
+    @apply w-full bg-bg-surface border border-bg-border rounded px-2.5 py-1.5 text-xs font-mono
+           text-text-primary placeholder-text-muted outline-none
+           focus:border-accent-cyan/50 transition-colors;
+  }
+
+  /* Dense table */
+  .data-table {
+    @apply w-full text-xs font-mono border-collapse;
+  }
+  .data-table th {
+    @apply px-3 py-1.5 text-2xs text-text-muted font-semibold uppercase tracking-widest
+           text-left border-b border-bg-border bg-bg-elevated;
+  }
+  .data-table td {
+    @apply px-3 py-2 text-text-secondary border-b border-bg-border/50;
+  }
+  .data-table tr:hover td {
+    @apply bg-bg-hover text-text-primary;
+  }
+
+  /* Terminal-style pre */
+  .terminal-pre {
+    @apply bg-bg-base border border-bg-border rounded font-mono text-xs text-text-secondary
+           p-3 overflow-x-auto leading-relaxed;
+  }
+
+  /* Status badge */
+  .status-dot-ok      { @apply w-2 h-2 rounded-full bg-accent-green; }
+  .status-dot-warn    { @apply w-2 h-2 rounded-full bg-accent-yellow; }
+  .status-dot-error   { @apply w-2 h-2 rounded-full bg-accent-red animate-pulse; }
+  .status-dot-unknown { @apply w-2 h-2 rounded-full bg-text-muted; }
+}
+
+@layer utilities {
+  /* Truncate with ellipsis */
+  .truncate-mono {
+    @apply font-mono truncate;
+    direction: ltr;
+  }
+
+  /* Glow utilities */
+  .glow-cyan   { @apply shadow-glow-cyan; }
+  .glow-green  { @apply shadow-glow-green; }
+  .glow-red    { @apply shadow-glow-red; }
+  .glow-purple { @apply shadow-glow-purple; }
+}
+
+/* ReactFlow overrides */
+.react-flow__attribution {
+  display: none !important;
+}
+.react-flow__controls {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+.react-flow__controls-button {
+  @apply bg-bg-elevated border border-bg-border text-text-muted rounded !important;
+}
+.react-flow__controls-button:hover {
+  @apply bg-bg-hover !important;
+}
+.react-flow__minimap {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Monaco editor dark theme tweaks */
+.monaco-editor {
+  background-color: transparent !important;
+}
+.monaco-editor .margin {
+  background-color: transparent !important;
+}

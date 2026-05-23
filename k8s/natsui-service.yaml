@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: natsui
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: natsui
+  namespace: natsui
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: natsui-discovery
+rules:
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: natsui-discovery
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: natsui-discovery
+subjects:
+  - kind: ServiceAccount
+    name: natsui
+    namespace: natsui
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: natsui-backend
+  namespace: natsui
+  labels:
+    app: natsui-backend
+spec:
+  selector:
+    app: natsui-backend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: natsui-frontend
+  namespace: natsui
+spec:
+  selector:
+    app: natsui-frontend
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: natsui-config
+  namespace: natsui
+type: Opaque
+stringData:
+  nats-url: "nats://nats:4222"

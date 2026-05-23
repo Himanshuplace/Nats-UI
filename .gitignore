@@ -1,0 +1,42 @@
+# Binaries
+/backend/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go
+backend/vendor/
+*.test
+*.out
+/backend/natsui
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.env.local
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Docker
+docker-compose.override.yml
+
+# Coverage
+coverage/
+*.coverprofile

@@ -54,8 +54,8 @@ export function CommandPalette() {
   const handleSelect = useCallback((id: string) => {
     const item = GROUPS.flatMap(g => g.items).find(i => i.id === id)
     if (!item) return
-    if ('view' in item && item.view) {
-      setView(item.view)
+    if ('view' in item && item.view != null) {
+      setView(item.view as import('@/types').View)
     }
     close()
   }, [setView, close])

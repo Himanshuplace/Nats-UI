@@ -9,7 +9,6 @@ import {
 } from '@/components/ui'
 import { formatNumber, formatHHMMSS } from '@/lib/format'
 import type { ReplayConfig, ReplayProgress } from '@/types'
-import { v4 as uuid } from 'crypto' // we'll use Date.now() instead
 
 let replayCounter = 0
 function newReplayId(): string {

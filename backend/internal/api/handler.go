@@ -62,7 +62,10 @@ func Mount(r chi.Router, hub *gateway.Hub, pool *natsmgr.Pool, dm *discovery.Man
 
 	// Streams
 	r.Get("/clusters/{id}/streams", h.listStreams)
+	r.Post("/clusters/{id}/streams", h.createStream)
 	r.Get("/clusters/{id}/streams/{stream}", h.getStream)
+	r.Put("/clusters/{id}/streams/{stream}", h.updateStream)
+	r.Delete("/clusters/{id}/streams/{stream}", h.deleteStream)
 
 	// Consumers
 	r.Get("/clusters/{id}/streams/{stream}/consumers", h.listConsumers)
@@ -432,6 +435,54 @@ func (h *handler) getStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, si)
+}
+
+func (h *handler) createStream(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var cfg types.StreamConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if cfg.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	si, err := h.inspector.CreateStream(r.Context(), id, cfg)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, si)
+}
+
+func (h *handler) updateStream(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var cfg types.StreamConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	// Override name with path param so the URL is authoritative
+	if name := chi.URLParam(r, "stream"); name != "" {
+		cfg.Name = name
+	}
+	si, err := h.inspector.UpdateStream(r.Context(), id, cfg)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, si)
+}
+
+func (h *handler) deleteStream(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	stream := chi.URLParam(r, "stream")
+	if err := h.inspector.DeleteStream(r.Context(), id, stream); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ── Consumers ─────────────────────────────────────────────────────────────────

@@ -71,6 +71,11 @@ func buildStreamInfo(clusterID string, info *natsgo.StreamInfo) types.StreamInfo
 			MaxBytes:    info.Config.MaxBytes,
 			MaxMsgs:     info.Config.MaxMsgs,
 			MaxMsgSize:  info.Config.MaxMsgSize,
+			Retention:   mapRetentionPolicy(info.Config.Retention),
+			Storage:     mapStorageType(info.Config.Storage),
+			Discard:     mapDiscardPolicy(info.Config.Discard),
+			Duplicates:  info.Config.Duplicates,
+			NoAck:       info.Config.NoAck,
 		},
 		State: types.StreamState{
 			Messages:    info.State.Msgs,
@@ -85,6 +90,86 @@ func buildStreamInfo(clusterID string, info *natsgo.StreamInfo) types.StreamInfo
 	}
 	si.Health = streamHealth(si)
 	return si
+}
+
+func (ins *Inspector) CreateStream(ctx context.Context, clusterID string, cfg types.StreamConfig) (*types.StreamInfo, error) {
+	mc, ok := ins.pool.Get(clusterID)
+	if !ok {
+		return nil, fmt.Errorf("cluster %s not connected", clusterID)
+	}
+	if !mc.IsJetStream() {
+		return nil, fmt.Errorf("jetstream not available on cluster %s", clusterID)
+	}
+	info, err := mc.JS.AddStream(streamConfigToJS(cfg), natsgo.Context(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("create stream %s: %w", cfg.Name, err)
+	}
+	si := buildStreamInfo(clusterID, info)
+	return &si, nil
+}
+
+func (ins *Inspector) UpdateStream(ctx context.Context, clusterID string, cfg types.StreamConfig) (*types.StreamInfo, error) {
+	mc, ok := ins.pool.Get(clusterID)
+	if !ok {
+		return nil, fmt.Errorf("cluster %s not connected", clusterID)
+	}
+	if !mc.IsJetStream() {
+		return nil, fmt.Errorf("jetstream not available on cluster %s", clusterID)
+	}
+	info, err := mc.JS.UpdateStream(streamConfigToJS(cfg), natsgo.Context(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("update stream %s: %w", cfg.Name, err)
+	}
+	si := buildStreamInfo(clusterID, info)
+	return &si, nil
+}
+
+func (ins *Inspector) DeleteStream(ctx context.Context, clusterID, name string) error {
+	mc, ok := ins.pool.Get(clusterID)
+	if !ok {
+		return fmt.Errorf("cluster %s not connected", clusterID)
+	}
+	if !mc.IsJetStream() {
+		return fmt.Errorf("jetstream not available")
+	}
+	return mc.JS.DeleteStream(name, natsgo.Context(ctx))
+}
+
+// streamConfigToJS converts our StreamConfig to nats.go StreamConfig.
+func streamConfigToJS(cfg types.StreamConfig) *natsgo.StreamConfig {
+	jsCfg := &natsgo.StreamConfig{
+		Name:        cfg.Name,
+		Description: cfg.Description,
+		Subjects:    cfg.Subjects,
+		Replicas:    cfg.Replicas,
+		MaxAge:      cfg.MaxAge,
+		MaxBytes:    cfg.MaxBytes,
+		MaxMsgs:     cfg.MaxMsgs,
+		MaxMsgSize:  cfg.MaxMsgSize,
+		NoAck:       cfg.NoAck,
+		Duplicates:  cfg.Duplicates,
+	}
+	switch cfg.Retention {
+	case types.RetentionInterest:
+		jsCfg.Retention = natsgo.InterestPolicy
+	case types.RetentionWorkQueue:
+		jsCfg.Retention = natsgo.WorkQueuePolicy
+	default:
+		jsCfg.Retention = natsgo.LimitsPolicy
+	}
+	switch cfg.Storage {
+	case types.StorageMemory:
+		jsCfg.Storage = natsgo.MemoryStorage
+	default:
+		jsCfg.Storage = natsgo.FileStorage
+	}
+	switch cfg.Discard {
+	case types.DiscardNew:
+		jsCfg.Discard = natsgo.DiscardNew
+	default:
+		jsCfg.Discard = natsgo.DiscardOld
+	}
+	return jsCfg
 }
 
 // ── Consumers ─────────────────────────────────────────────────────────────────
@@ -579,6 +664,35 @@ func consumerHealth(c types.ConsumerInfo) string {
 		return "lagging"
 	}
 	return "ok"
+}
+
+func mapRetentionPolicy(p natsgo.RetentionPolicy) types.RetentionPolicy {
+	switch p {
+	case natsgo.InterestPolicy:
+		return types.RetentionInterest
+	case natsgo.WorkQueuePolicy:
+		return types.RetentionWorkQueue
+	default:
+		return types.RetentionLimits
+	}
+}
+
+func mapStorageType(s natsgo.StorageType) types.StorageType {
+	switch s {
+	case natsgo.MemoryStorage:
+		return types.StorageMemory
+	default:
+		return types.StorageFile
+	}
+}
+
+func mapDiscardPolicy(d natsgo.DiscardPolicy) types.DiscardPolicy {
+	switch d {
+	case natsgo.DiscardNew:
+		return types.DiscardNew
+	default:
+		return types.DiscardOld
+	}
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

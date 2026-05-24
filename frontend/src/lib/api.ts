@@ -46,8 +46,13 @@ export const api = {
   },
 
   streams: {
-    list: (clusterId: string) => get<StreamInfo[]>(`/clusters/${clusterId}/streams`),
-    get:  (clusterId: string, name: string) => get<StreamInfo>(`/clusters/${clusterId}/streams/${name}`),
+    list:   (clusterId: string) => get<StreamInfo[]>(`/clusters/${clusterId}/streams`),
+    get:    (clusterId: string, name: string) => get<StreamInfo>(`/clusters/${clusterId}/streams/${name}`),
+    create: (clusterId: string, cfg: Partial<StreamInfo['config']>) =>
+      post<StreamInfo>(`/clusters/${clusterId}/streams`, cfg),
+    update: (clusterId: string, name: string, cfg: Partial<StreamInfo['config']>) =>
+      req<StreamInfo>('PUT', `/clusters/${clusterId}/streams/${name}`, cfg),
+    delete: (clusterId: string, name: string) => del<void>(`/clusters/${clusterId}/streams/${name}`),
     messages: (clusterId: string, stream: string, opts?: {
       startSeq?: number
       limit?: number

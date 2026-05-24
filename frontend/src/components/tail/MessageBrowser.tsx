@@ -20,9 +20,11 @@ const PAGE_SIZE = 50
 
 export function MessageBrowser() {
   const activeClusters = useUIStore(s => s.activeClusters)
+  const activeStream   = useUIStore(s => s.activeStream)   // pre-select from StreamExplorer
   const clusterId      = activeClusters[0] ?? ''
 
-  const [selectedStream, setSelectedStream] = useState('')
+  // Seed selectedStream from the global activeStream when first rendered
+  const [selectedStream, setSelectedStream] = useState(activeStream ?? '')
   const [subjectFilter, setSubjectFilter]   = useState('')
   const [startSeq, setStartSeq]             = useState('')
   const [fetchKey, setFetchKey]             = useState(0)   // bump to re-fetch

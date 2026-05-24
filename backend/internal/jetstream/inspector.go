@@ -356,7 +356,7 @@ func (ins *Inspector) TailStream(ctx context.Context, clusterID, stream string, 
 		fn(tm)
 	},
 		natsgo.BindStream(stream),
-		natsgo.DeliverNew(),
+		natsgo.DeliverAll(), // deliver existing messages first, then continue live
 		natsgo.AckNone(),
 		natsgo.Context(ctx),
 	)
@@ -516,6 +516,25 @@ func (ins *Inspector) ReplayStream(ctx context.Context, cfg types.ReplayConfig, 
 		return fmt.Errorf("jetstream not available")
 	}
 
+	// Determine total message count from stream state.
+	si, err := mc.JS.StreamInfo(cfg.Stream, natsgo.Context(ctx))
+	if err != nil {
+		return fmt.Errorf("stream info for replay: %w", err)
+	}
+	lastSeq := si.State.LastSeq
+	startSeqActual := si.State.FirstSeq
+	if cfg.StartSeq != nil && *cfg.StartSeq > startSeqActual {
+		startSeqActual = *cfg.StartSeq
+	}
+	endSeqActual := lastSeq
+	if cfg.EndSeq != nil && *cfg.EndSeq < endSeqActual {
+		endSeqActual = *cfg.EndSeq
+	}
+	var totalMsgs uint64
+	if endSeqActual >= startSeqActual {
+		totalMsgs = endSeqActual - startSeqActual + 1
+	}
+
 	var opts []natsgo.SubOpt
 	opts = append(opts, natsgo.BindStream(cfg.Stream))
 	opts = append(opts, natsgo.AckNone())
@@ -531,9 +550,9 @@ func (ins *Inspector) ReplayStream(ctx context.Context, cfg types.ReplayConfig, 
 
 	var processed uint64
 	start := time.Now()
+	done := make(chan struct{}, 1)
 
 	var sub *natsgo.Subscription
-	var err error
 	sub, err = mc.JS.Subscribe(">", func(msg *natsgo.Msg) {
 		meta, _ := msg.Metadata()
 		processed++
@@ -546,6 +565,7 @@ func (ins *Inspector) ReplayStream(ctx context.Context, cfg types.ReplayConfig, 
 		progress := types.ReplayProgress{
 			ID:         cfg.ID,
 			CurrentSeq: seq,
+			TotalMsgs:  totalMsgs,
 			Processed:  processed,
 			ElapsedMs:  elapsed.Milliseconds(),
 		}
@@ -558,21 +578,32 @@ func (ins *Inspector) ReplayStream(ctx context.Context, cfg types.ReplayConfig, 
 			time.Sleep(time.Duration(cfg.ThrottleMs) * time.Millisecond)
 		}
 
-		if cfg.EndSeq != nil && seq >= *cfg.EndSeq {
+		// Auto-finish: stop when we've reached the effective end sequence.
+		reachedEnd := (cfg.EndSeq != nil && seq >= *cfg.EndSeq) ||
+			(cfg.EndSeq == nil && seq >= lastSeq && si.State.Msgs > 0)
+		if reachedEnd {
 			sub.Unsubscribe()
 			progressFn(types.ReplayProgress{
 				ID:        cfg.ID,
+				TotalMsgs: totalMsgs,
 				Processed: processed,
 				Done:      true,
 				ElapsedMs: time.Since(start).Milliseconds(),
 			})
+			select {
+			case done <- struct{}{}:
+			default:
+			}
 		}
 	}, opts...)
 	if err != nil {
 		return fmt.Errorf("replay subscribe: %w", err)
 	}
 
-	<-ctx.Done()
+	select {
+	case <-ctx.Done():
+	case <-done:
+	}
 	sub.Unsubscribe()
 	return nil
 }

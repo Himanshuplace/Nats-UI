@@ -26,8 +26,9 @@ export function MessageBrowser() {
   // Seed selectedStream from the global activeStream when first rendered
   const [selectedStream, setSelectedStream] = useState(activeStream ?? '')
   const [subjectFilter, setSubjectFilter]   = useState('')
+  // Auto-fetch on mount when stream is pre-selected (e.g. navigated from StreamExplorer)
+  const [fetchKey, setFetchKey]             = useState(() => activeStream ? 1 : 0)
   const [startSeq, setStartSeq]             = useState('')
-  const [fetchKey, setFetchKey]             = useState(0)   // bump to re-fetch
   const [nextSeq, setNextSeq]               = useState<number | null>(null)  // for next-page
   const [history, setHistory]               = useState<number[]>([])         // startSeq stack for prev-page
   const [expandedSeq, setExpandedSeq]       = useState<number | null>(null)

@@ -21,6 +21,7 @@ import (
 	"github.com/Himanshuplace/nats-ui/internal/gateway"
 	"github.com/Himanshuplace/nats-ui/internal/metrics"
 	natsmgr "github.com/Himanshuplace/nats-ui/internal/nats"
+	"github.com/Himanshuplace/nats-ui/pkg/types"
 )
 
 func main() {
@@ -38,12 +39,19 @@ func main() {
 	dm.Register("local", discoverlocal.New())
 	dm.Register("docker", discoverdocker.New())
 
-	// Auto-connect if NATS_URL is set
+	// Auto-connect if NATS_URL is set.
+	// NATS_TOKEN is optional — set it when the cluster requires token authentication.
 	if url := os.Getenv("NATS_URL"); url != "" {
-		if _, err := pool.ConnectURL("default", url); err != nil {
+		profile := types.ConnectionProfile{
+			ID:    "default",
+			Name:  "default",
+			URL:   url,
+			Token: os.Getenv("NATS_TOKEN"),
+		}
+		if _, err := pool.Connect(profile); err != nil {
 			slog.Warn("auto-connect failed", "url", url, "err", err)
 		} else {
-			slog.Info("auto-connected to NATS", "url", url)
+			slog.Info("auto-connected to NATS", "url", url, "auth", profile.Token != "")
 		}
 	}
 

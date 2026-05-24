@@ -12,6 +12,7 @@ const nextId = () => `msg-${++idCounter}`
  */
 export function useWebSocketBridge(): void {
   const setWSConnected       = useUIStore(s => s.setWSConnected)
+  const setActiveCluster     = useUIStore(s => s.setActiveCluster)
   const setCluster           = useDataStore(s => s.setCluster)
   const setStreams            = useDataStore(s => s.setStreams)
   const setConsumers         = useDataStore(s => s.setConsumers)
@@ -34,6 +35,9 @@ export function useWebSocketBridge(): void {
 
     unsubs.push(ws.on<ClusterInfo>('cluster.topology', ({ data }) => {
       setCluster(data)
+      // Ensure this cluster is in activeClusters — covers the case where the backend
+      // auto-connected before the frontend fetched /connections on mount.
+      if (data.id) setActiveCluster(data.id)
     }))
 
     unsubs.push(ws.on('stream.list', ({ data }) => {

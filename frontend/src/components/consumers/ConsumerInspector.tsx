@@ -18,12 +18,13 @@ export function ConsumerInspector() {
   const [selectedConsumer, setSelectedConsumer] = useState<string | null>(null)
 
   const activeClusters = useUIStore(s => s.activeClusters)
-  const clusterId = activeClusters[0] ?? 'default'
+  const clusterId = activeClusters[0] ?? ''
 
   const { data: streams } = useQuery({
     queryKey: ['streams', clusterId],
     queryFn: () => api.streams.list(clusterId),
     refetchInterval: 10_000,
+    enabled: activeClusters.length > 0 && Boolean(clusterId),
   })
 
   const { data: consumers, isLoading } = useQuery({

@@ -1,11 +1,13 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import ReactFlow, {
   Node, Edge, Background, Controls, MiniMap,
   BackgroundVariant, useNodesState, useEdgesState,
   MarkerType, Position,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
-import { useDataStore } from '@/store'
+import { useDataStore, useUIStore } from '@/store'
+import { api } from '@/lib/api'
 import { HealthDot, Badge, StatCard, EmptyState } from '@/components/ui'
 import { formatNumber, formatBytes, healthColor } from '@/lib/format'
 import { Server } from 'lucide-react'
@@ -89,7 +91,25 @@ interface ClusterTopologyProps {
 }
 
 export function ClusterTopology({ clusterId }: ClusterTopologyProps) {
-  const clusters = useDataStore(s => s.clusters)
+  const clusters       = useDataStore(s => s.clusters)
+  const setCluster     = useDataStore(s => s.setCluster)
+  const activeClusters = useUIStore(s => s.activeClusters)
+
+  // Pick a target — prop takes precedence, otherwise first active cluster
+  const targetId = clusterId ?? activeClusters[0]
+
+  // REST fetch seeds the store immediately (WS topology broadcast has a 10s delay)
+  const { data: fetchedCluster } = useQuery({
+    queryKey: ['topology', targetId],
+    queryFn: () => api.cluster.topology(targetId!),
+    enabled: Boolean(targetId),
+    refetchInterval: 10_000,
+    staleTime: 5_000,
+  })
+
+  useEffect(() => {
+    if (fetchedCluster) setCluster(fetchedCluster)
+  }, [fetchedCluster, setCluster])
 
   const targetClusters = clusterId
     ? (clusters[clusterId] ? [clusters[clusterId]] : [])
@@ -101,7 +121,7 @@ export function ClusterTopology({ clusterId }: ClusterTopologyProps) {
         <EmptyState
           icon={<Server className="w-10 h-10" />}
           title="No clusters connected"
-          description="Connect to a NATS server or run auto-discovery to see your cluster topology"
+          description="Connect to a NATS server in Settings, then come back here"
         />
       </div>
     )

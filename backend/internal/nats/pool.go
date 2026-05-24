@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,9 +44,14 @@ func NewPool() *Pool {
 
 // Connect establishes a new NATS connection from a profile and stores it in the pool.
 func (p *Pool) Connect(profile types.ConnectionProfile) (*ManagedConn, error) {
-	// Derive host and port from URL if not explicit
+	// Derive host and port from URL if not explicit.
+	// For multi-server URLs (comma-separated), use only the first server for monitoring.
 	if profile.Host == "" || profile.ClientPort == 0 {
-		if u, err := url.Parse(profile.URL); err == nil {
+		firstURL := profile.URL
+		if idx := strings.IndexByte(firstURL, ','); idx > 0 {
+			firstURL = firstURL[:idx]
+		}
+		if u, err := url.Parse(firstURL); err == nil {
 			profile.Host = u.Hostname()
 			if port, err := strconv.Atoi(u.Port()); err == nil {
 				profile.ClientPort = port

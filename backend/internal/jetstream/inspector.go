@@ -154,7 +154,8 @@ func (ins *Inspector) ListConsumers(ctx context.Context, clusterID, stream strin
 }
 
 // TailStream starts tailing messages from a stream and sends them to the callback.
-// It runs until ctx is cancelled.
+// It runs until ctx is cancelled. Uses an ephemeral consumer (no Durable) so
+// NATS auto-cleans it up when the subscription is closed.
 func (ins *Inspector) TailStream(ctx context.Context, clusterID, stream string, fn func(types.TailedMessage)) error {
 	mc, ok := ins.pool.Get(clusterID)
 	if !ok {
@@ -164,9 +165,7 @@ func (ins *Inspector) TailStream(ctx context.Context, clusterID, stream string, 
 		return fmt.Errorf("jetstream not available")
 	}
 
-	consumerName := fmt.Sprintf("natsui-tail-%d", time.Now().UnixMilli())
-
-	sub, err := mc.JS.Subscribe("", func(msg *natsgo.Msg) {
+	sub, err := mc.JS.Subscribe(">", func(msg *natsgo.Msg) {
 		meta, _ := msg.Metadata()
 
 		payload := string(msg.Data)
@@ -178,6 +177,7 @@ func (ins *Inspector) TailStream(ctx context.Context, clusterID, stream string, 
 		}
 
 		tm := types.TailedMessage{
+			ClusterID:   clusterID,
 			Stream:      stream,
 			Subject:     msg.Subject,
 			PayloadText: payload,
@@ -193,12 +193,10 @@ func (ins *Inspector) TailStream(ctx context.Context, clusterID, stream string, 
 		}
 
 		fn(tm)
-		msg.Ack()
 	},
 		natsgo.BindStream(stream),
-		natsgo.Durable(consumerName),
 		natsgo.DeliverNew(),
-		natsgo.AckExplicit(),
+		natsgo.AckNone(),
 		natsgo.Context(ctx),
 	)
 	if err != nil {
@@ -208,8 +206,126 @@ func (ins *Inspector) TailStream(ctx context.Context, clusterID, stream string, 
 	<-ctx.Done()
 
 	sub.Unsubscribe()
-	mc.JS.DeleteConsumer(stream, consumerName)
 	slog.Info("tail stopped", "stream", stream, "cluster", clusterID)
+	return nil
+}
+
+// GetConsumer returns info for a single consumer.
+func (ins *Inspector) GetConsumer(ctx context.Context, clusterID, stream, name string) (*types.ConsumerInfo, error) {
+	mc, ok := ins.pool.Get(clusterID)
+	if !ok {
+		return nil, fmt.Errorf("cluster %s not connected", clusterID)
+	}
+	if !mc.IsJetStream() {
+		return nil, fmt.Errorf("jetstream not available")
+	}
+	info, err := mc.JS.ConsumerInfo(stream, name, natsgo.Context(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("consumer info %s/%s: %w", stream, name, err)
+	}
+	ci := &types.ConsumerInfo{
+		Stream:    stream,
+		Name:      info.Name,
+		Created:   info.Created,
+		ClusterID: clusterID,
+		Config: types.ConsumerConfig{
+			Name:          info.Config.Name,
+			DurableName:   info.Config.Durable,
+			Description:   info.Config.Description,
+			FilterSubject: info.Config.FilterSubject,
+			MaxDeliver:    info.Config.MaxDeliver,
+			MaxAckPending: info.Config.MaxAckPending,
+		},
+		Delivered: types.ConsumerSequenceInfo{
+			ConsumerSeq: info.Delivered.Consumer,
+			StreamSeq:   info.Delivered.Stream,
+		},
+		AckFloor: types.ConsumerSequenceInfo{
+			ConsumerSeq: info.AckFloor.Consumer,
+			StreamSeq:   info.AckFloor.Stream,
+		},
+		NumAckPending:  info.NumAckPending,
+		NumRedelivered: info.NumRedelivered,
+		NumWaiting:     info.NumWaiting,
+		NumPending:     info.NumPending,
+		Lag:            info.NumPending,
+	}
+	ci.Health = consumerHealth(*ci)
+	return ci, nil
+}
+
+// ReplayStream replays messages from a stream according to the replay config.
+// Calls progressFn periodically with progress updates.
+func (ins *Inspector) ReplayStream(ctx context.Context, cfg types.ReplayConfig, progressFn func(types.ReplayProgress)) error {
+	mc, ok := ins.pool.Get(cfg.ClusterID)
+	if !ok {
+		return fmt.Errorf("cluster %s not connected", cfg.ClusterID)
+	}
+	if !mc.IsJetStream() {
+		return fmt.Errorf("jetstream not available")
+	}
+
+	var opts []natsgo.SubOpt
+	opts = append(opts, natsgo.BindStream(cfg.Stream))
+	opts = append(opts, natsgo.AckNone())
+	opts = append(opts, natsgo.Context(ctx))
+
+	if cfg.StartSeq != nil {
+		opts = append(opts, natsgo.StartSequence(*cfg.StartSeq))
+	} else if cfg.StartTime != nil {
+		opts = append(opts, natsgo.StartTime(*cfg.StartTime))
+	} else {
+		opts = append(opts, natsgo.DeliverAll())
+	}
+
+	var processed uint64
+	start := time.Now()
+
+	var sub *natsgo.Subscription
+	var err error
+	sub, err = mc.JS.Subscribe(">", func(msg *natsgo.Msg) {
+		meta, _ := msg.Metadata()
+
+		processed++
+		var seq uint64
+		if meta != nil {
+			seq = meta.Sequence.Stream
+		}
+
+		elapsed := time.Since(start)
+		progress := types.ReplayProgress{
+			ID:         cfg.ID,
+			CurrentSeq: seq,
+			Processed:  processed,
+			ElapsedMs:  elapsed.Milliseconds(),
+		}
+		if elapsed.Seconds() > 0 {
+			progress.Rate = float64(processed) / elapsed.Seconds()
+		}
+		progressFn(progress)
+
+		// Apply throttle
+		if cfg.ThrottleMs > 0 {
+			time.Sleep(time.Duration(cfg.ThrottleMs) * time.Millisecond)
+		}
+
+		// Stop at end seq
+		if cfg.EndSeq != nil && seq >= *cfg.EndSeq {
+			sub.Unsubscribe()
+			progressFn(types.ReplayProgress{
+				ID:        cfg.ID,
+				Processed: processed,
+				Done:      true,
+				ElapsedMs: time.Since(start).Milliseconds(),
+			})
+		}
+	}, opts...)
+	if err != nil {
+		return fmt.Errorf("replay subscribe: %w", err)
+	}
+
+	<-ctx.Done()
+	sub.Unsubscribe()
 	return nil
 }
 

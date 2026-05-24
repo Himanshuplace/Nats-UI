@@ -12,6 +12,7 @@ const VIEW_LABELS: Record<View, string> = {
   tail:      'Message Tail',
   replay:    'Replay Studio',
   metrics:   'Metrics Dashboard',
+  accounts:  'Accounts & Users',
   dlq:       'Dead Letter Queue',
   settings:  'Settings',
 }

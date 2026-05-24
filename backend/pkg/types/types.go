@@ -90,8 +90,8 @@ const (
 	StorageFile   StorageType = "file"
 	StorageMemory StorageType = "memory"
 
-	DiscardOld StorageType = "old"
-	DiscardNew StorageType = "new"
+	DiscardOld DiscardPolicy = "old"
+	DiscardNew DiscardPolicy = "new"
 
 	DeliverAll       DeliverPolicy = "all"
 	DeliverLast      DeliverPolicy = "last"
@@ -185,6 +185,7 @@ type ConsumerInfo struct {
 // ── Messages ──────────────────────────────────────────────────────────────────
 
 type TailedMessage struct {
+	ClusterID   string            `json:"clusterId"`
 	Stream      string            `json:"stream"`
 	Subject     string            `json:"subject"`
 	Seq         uint64            `json:"seq"`
@@ -283,4 +284,29 @@ type WSEvent struct {
 type ErrorEvent struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+// ── Accounts & Users ──────────────────────────────────────────────────────────
+
+type NATSAccount struct {
+	Name          string     `json:"name"`
+	Connections   int        `json:"connections"`
+	Subscriptions int64      `json:"subscriptions"`
+	LeafNodes     int        `json:"leafNodes"`
+	InMsgs        int64      `json:"inMsgs"`
+	OutMsgs       int64      `json:"outMsgs"`
+	InBytes       int64      `json:"inBytes"`
+	OutBytes      int64      `json:"outBytes"`
+	JetStream     bool       `json:"jetStream"`
+	Users         []NATSUser `json:"users,omitempty"`
+}
+
+type NATSUser struct {
+	Username string `json:"username"`
+	Account  string `json:"account"`
+	IP       string `json:"ip"`
+	Port     int    `json:"port"`
+	Subs     int64  `json:"subs"`
+	InMsgs   int64  `json:"inMsgs"`
+	OutMsgs  int64  `json:"outMsgs"`
 }

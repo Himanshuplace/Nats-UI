@@ -1,14 +1,16 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
-  Play, Square, Trash2, Filter, Download,
+  Play, Square, Trash2, Filter,
   ChevronDown, ChevronRight, Clock,
 } from 'lucide-react'
 import { useDataStore, useUIStore } from '@/store'
 import { useTail } from '@/hooks/useWebSocket'
-import { cn, Button, Badge, StatCard, EmptyState } from '@/components/ui'
+import { api } from '@/lib/api'
+import { cn, Button, Badge, EmptyState } from '@/components/ui'
 import { PayloadViewer } from './PayloadViewer'
-import { formatBytes, formatTimestamp, formatTimeAgo, healthColor, tryParseJSON } from '@/lib/format'
+import { formatBytes, formatTimestamp, tryParseJSON } from '@/lib/format'
 import type { TailedMessage } from '@/types'
 
 interface MessageTailProps {
@@ -16,17 +18,33 @@ interface MessageTailProps {
   stream?: string
 }
 
-export function MessageTail({ clusterId = 'default', stream = '' }: MessageTailProps) {
-  const [selectedStream, setSelectedStream] = useState(stream)
+export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: MessageTailProps) {
+  const activeClusters = useUIStore(s => s.activeClusters)
+  const activeStream   = useUIStore(s => s.activeStream)
+
+  // Resolve effective cluster — prop → first active → empty
+  const clusterId = clusterIdProp || activeClusters[0] || ''
+
+  const [selectedStream, setSelectedStream] = useState(stream || activeStream || '')
   const [filterText, setFilterText] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [autoScroll, setAutoScroll] = useState(true)
   const [paused, setPaused] = useState(false)
 
-  const key      = selectedStream
+  // Key includes clusterId so two clusters can tail streams with the same name independently
+  const key      = `${clusterId}:${selectedStream}`
   const messages = useDataStore(s => s.tailMessages[key] ?? [])
   const isActive = useDataStore(s => s.tailActive[key] ?? false)
-  const streams  = useDataStore(s => s.streams[clusterId] ?? [])
+
+  // Fetch streams via React Query (StreamExplorer uses the same query key — shared cache)
+  const { data: streamList } = useQuery({
+    queryKey: ['streams', clusterId],
+    queryFn: () => api.streams.list(clusterId),
+    enabled: Boolean(clusterId),
+    refetchInterval: 15_000,
+    staleTime: 10_000,
+  })
+  const streams = streamList ?? []
 
   const { start, stop, clear } = useTail(clusterId, selectedStream)
   const parentRef = useRef<HTMLDivElement>(null)

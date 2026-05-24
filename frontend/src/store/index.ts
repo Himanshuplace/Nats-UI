@@ -99,6 +99,7 @@ interface DataState {
 
   setDiscoveredServers: (servers: NATSServer[]) => void
   addDiscoveredServer: (server: NATSServer) => void
+  removeDiscoveredServer: (id: string) => void
   setCluster: (cluster: ClusterInfo) => void
   setStreams: (clusterId: string, streams: StreamInfo[]) => void
   setConsumers: (key: string, consumers: ConsumerInfo[]) => void
@@ -130,6 +131,10 @@ export const useDataStore = create<DataState>()(
         ...s.discoveredServers.filter(d => d.id !== server.id),
         server,
       ],
+    })),
+
+    removeDiscoveredServer: (id) => set((s) => ({
+      discoveredServers: s.discoveredServers.filter(d => d.id !== id),
     })),
 
     setCluster: (cluster) => set((s) => ({

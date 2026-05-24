@@ -1,9 +1,10 @@
 import type {
   ClusterInfo, StreamInfo, ConsumerInfo,
-  ConnectionProfile, NATSServer,
+  ConnectionProfile, NATSServer, NATSAccount, NATSUser,
 } from '@/types'
 
-const BASE = (import.meta.env.VITE_API_BASE ?? 'http://localhost:8080') + '/api/v1'
+const API_ROOT = import.meta.env.VITE_API_BASE ?? 'http://localhost:8080'
+const BASE = API_ROOT + '/api/v1'
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -45,6 +46,8 @@ export const api = {
   cluster: {
     topology: (id: string) => get<ClusterInfo>(`/clusters/${id}/topology`),
     health:   (id: string) => get<{ health: string; nodes: number }>(`/clusters/${id}/health`),
+    accounts: (id: string) => get<NATSAccount[]>(`/clusters/${id}/accounts`),
+    connz:    (id: string) => get<NATSUser[]>(`/clusters/${id}/connz`),
   },
 
   // ── Streams ──────────────────────────────────────────────────────────────────
@@ -71,5 +74,5 @@ export const api = {
 
   // ── Health ───────────────────────────────────────────────────────────────────
 
-  health: () => fetch('/health').then(r => r.json()),
+  health: () => fetch(`${API_ROOT}/health`).then(r => r.json()),
 }

@@ -1,9 +1,11 @@
-import { type ReactNode } from 'react'
+import { useCallback } from 'react'
 import {
   Activity, Server, Layers, Users, Radio, RotateCcw,
   BarChart2, AlertTriangle, Settings, ChevronLeft, Plus, Wifi, WifiOff,
+  Shield,
 } from 'lucide-react'
 import { useUIStore, useDataStore } from '@/store'
+import { api } from '@/lib/api'
 import { HealthDot, Tooltip, cn } from '@/components/ui'
 import type { View } from '@/types'
 
@@ -22,18 +24,32 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'tail',      label: 'Message Tail',    icon: Radio,          shortcut: 'L' },
   { id: 'replay',    label: 'Replay Studio',   icon: RotateCcw,      shortcut: 'R' },
   { id: 'metrics',   label: 'Metrics',         icon: BarChart2,      shortcut: 'M' },
+  { id: 'accounts',  label: 'Accounts',        icon: Shield,         shortcut: 'A' },
   { id: 'dlq',       label: 'Dead Letters',    icon: AlertTriangle,  shortcut: 'D' },
 ]
 
 export function Sidebar() {
-  const activeView       = useUIStore(s => s.activeView)
-  const collapsed        = useUIStore(s => s.sidebarCollapsed)
-  const wsConnected      = useUIStore(s => s.wsConnected)
-  const setView          = useUIStore(s => s.setView)
-  const toggleSidebar    = useUIStore(s => s.toggleSidebar)
-  const openCmdPalette   = useUIStore(s => s.openCommandPalette)
-  const discoveredServers = useDataStore(s => s.discoveredServers)
-  const clusters          = useDataStore(s => s.clusters)
+  const activeView        = useUIStore(s => s.activeView)
+  const collapsed         = useUIStore(s => s.sidebarCollapsed)
+  const wsConnected       = useUIStore(s => s.wsConnected)
+  const setView           = useUIStore(s => s.setView)
+  const toggleSidebar     = useUIStore(s => s.toggleSidebar)
+  const openCmdPalette    = useUIStore(s => s.openCommandPalette)
+  const setActiveCluster  = useUIStore(s => s.setActiveCluster)
+  const discoveredServers  = useDataStore(s => s.discoveredServers)
+  const clusters           = useDataStore(s => s.clusters)
+
+  const connectDiscovered = useCallback(async (host: string, clientPort: number) => {
+    try {
+      const res = await api.connections.connect({
+        name: `${host}:${clientPort}`,
+        url:  `nats://${host}:${clientPort}`,
+      })
+      setActiveCluster(res.id)
+    } catch (err) {
+      console.error('[sidebar] connect failed', err)
+    }
+  }, [setActiveCluster])
 
   const connectedClusters = Object.values(clusters)
 
@@ -164,7 +180,9 @@ export function Sidebar() {
             {discoveredServers.slice(0, 5).map(s => (
               <div
                 key={s.id}
+                onClick={() => connectDiscovered(s.host, s.clientPort)}
                 className="flex items-center gap-2 px-3 py-1.5 hover:bg-bg-hover cursor-pointer group"
+                title={`Connect to ${s.host}:${s.clientPort}`}
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-nats-primary flex-shrink-0" />
                 <span className="flex-1 text-xs font-mono text-text-muted truncate">

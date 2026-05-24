@@ -92,6 +92,46 @@ func buildStreamInfo(clusterID string, info *natsgo.StreamInfo) types.StreamInfo
 	return si
 }
 
+// ListSubjects returns all known NATS subjects from stream configs and consumer filter subjects.
+// Useful for publisher auto-complete.
+func (ins *Inspector) ListSubjects(ctx context.Context, clusterID string) ([]types.SubjectInfo, error) {
+	mc, ok := ins.pool.Get(clusterID)
+	if !ok {
+		return nil, fmt.Errorf("cluster %s not connected", clusterID)
+	}
+	if !mc.IsJetStream() {
+		return nil, fmt.Errorf("jetstream not available on cluster %s", clusterID)
+	}
+
+	seen := make(map[string]bool)
+	var subjects []types.SubjectInfo
+
+	for info := range mc.JS.StreamsInfo(natsgo.Context(ctx)) {
+		for _, subj := range info.Config.Subjects {
+			if !seen[subj] {
+				seen[subj] = true
+				subjects = append(subjects, types.SubjectInfo{
+					Subject: subj,
+					Stream:  info.Config.Name,
+					Source:  "stream",
+				})
+			}
+		}
+		// Collect consumer filter subjects for this stream
+		for ci := range mc.JS.ConsumersInfo(info.Config.Name, natsgo.Context(ctx)) {
+			if ci.Config.FilterSubject != "" && !seen[ci.Config.FilterSubject] {
+				seen[ci.Config.FilterSubject] = true
+				subjects = append(subjects, types.SubjectInfo{
+					Subject: ci.Config.FilterSubject,
+					Stream:  info.Config.Name,
+					Source:  "consumer",
+				})
+			}
+		}
+	}
+	return subjects, nil
+}
+
 func (ins *Inspector) CreateStream(ctx context.Context, clusterID string, cfg types.StreamConfig) (*types.StreamInfo, error) {
 	mc, ok := ins.pool.Get(clusterID)
 	if !ok {
@@ -356,7 +396,7 @@ func (ins *Inspector) TailStream(ctx context.Context, clusterID, stream string, 
 		fn(tm)
 	},
 		natsgo.BindStream(stream),
-		natsgo.DeliverAll(), // deliver existing messages first, then continue live
+		natsgo.DeliverNew(), // live tail: only messages published after start
 		natsgo.AckNone(),
 		natsgo.Context(ctx),
 	)

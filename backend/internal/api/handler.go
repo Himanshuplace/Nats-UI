@@ -77,6 +77,9 @@ func Mount(r chi.Router, hub *gateway.Hub, pool *natsmgr.Pool, dm *discovery.Man
 	r.Get("/clusters/{id}/streams/{stream}/messages", h.listMessages)
 	r.Post("/clusters/{id}/publish", h.publish)
 
+	// Subjects: known subjects for autocomplete
+	r.Get("/clusters/{id}/subjects", h.listSubjects)
+
 	// Metrics
 	r.Get("/clusters/{id}/metrics/throughput", h.metricsThroughput)
 
@@ -118,8 +121,7 @@ func (h *handler) handleTailStart(clientID string, payload json.RawMessage) {
 	h.cancels[cancelKey] = cancel
 	h.cancelsMu.Unlock()
 
-	topic := gateway.TopicTail + req.ClusterID + ":" + req.Stream
-	h.hub.BroadcastTopic(topic, gateway.EventTailStarted, map[string]string{
+	h.hub.Broadcast(gateway.EventTailStarted, map[string]string{
 		"clusterId": req.ClusterID,
 		"stream":    req.Stream,
 	})
@@ -129,18 +131,17 @@ func (h *handler) handleTailStart(clientID string, payload json.RawMessage) {
 			h.cancelsMu.Lock()
 			delete(h.cancels, cancelKey)
 			h.cancelsMu.Unlock()
-			h.hub.BroadcastTopic(topic, gateway.EventTailStopped, map[string]string{
+			h.hub.Broadcast(gateway.EventTailStopped, map[string]string{
 				"clusterId": req.ClusterID,
 				"stream":    req.Stream,
 			})
 		}()
 
 		err := h.inspector.TailStream(ctx, req.ClusterID, req.Stream, func(msg types.TailedMessage) {
-			h.hub.BroadcastTopic(topic, gateway.EventMessageReceived, msg)
 			h.hub.Broadcast(gateway.EventMessageReceived, msg)
 		})
 		if err != nil && ctx.Err() == nil {
-			h.hub.BroadcastTopic(topic, gateway.EventError, map[string]string{
+			h.hub.Broadcast(gateway.EventError, map[string]string{
 				"code":    "TAIL_ERROR",
 				"message": err.Error(),
 			})
@@ -591,6 +592,20 @@ func (h *handler) publish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// listSubjects returns all known NATS subjects (stream configs + consumer filters).
+func (h *handler) listSubjects(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	subjects, err := h.inspector.ListSubjects(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if subjects == nil {
+		subjects = []types.SubjectInfo{}
+	}
+	writeJSON(w, http.StatusOK, subjects)
 }
 
 // ── Metrics ───────────────────────────────────────────────────────────────────

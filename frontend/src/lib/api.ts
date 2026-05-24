@@ -1,7 +1,7 @@
 import type {
   ClusterInfo, StreamInfo, ConsumerInfo,
   ConnectionProfile, NATSServer, NATSAccount, NATSUser,
-  StoredMessage, PublishRequest, PublishResult,
+  StoredMessage, PublishRequest, PublishResult, SubjectInfo,
 } from '@/types'
 
 const API_ROOT = import.meta.env.VITE_API_BASE ?? 'http://localhost:8080'
@@ -76,6 +76,10 @@ export const api = {
       post<ConsumerInfo>(`/clusters/${clusterId}/streams/${stream}/consumers`, cfg),
     delete: (clusterId: string, stream: string, name: string) =>
       del<void>(`/clusters/${clusterId}/streams/${stream}/consumers/${name}`),
+  },
+
+  subjects: {
+    list: (clusterId: string) => get<SubjectInfo[]>(`/clusters/${clusterId}/subjects`),
   },
 
   publish: (clusterId: string, req: PublishRequest) =>

@@ -1,5 +1,10 @@
 version: "3.9"
 
+# NATS cluster auth token — change this before deploying to production.
+# All three NATS nodes and the backend must share the same value.
+x-nats-token: &nats-token
+  NATS_AUTH_TOKEN: ${NATS_AUTH_TOKEN:-natsui-dev-token}
+
 networks:
   natsui:
     driver: bridge
@@ -20,6 +25,8 @@ services:
       - "8222:8222"   # monitoring
       - "6222:6222"   # cluster routes
     command: ["-c", "/etc/nats/nats.conf"]
+    environment:
+      <<: *nats-token
     volumes:
       - nats1-data:/data
       - ./nats-config/nats1.conf:/etc/nats/nats.conf:ro
@@ -38,6 +45,8 @@ services:
       - "8223:8222"
       - "6223:6222"
     command: ["-c", "/etc/nats/nats.conf"]
+    environment:
+      <<: *nats-token
     volumes:
       - nats2-data:/data
       - ./nats-config/nats2.conf:/etc/nats/nats.conf:ro
@@ -56,6 +65,8 @@ services:
       - "8224:8222"
       - "6224:6222"
     command: ["-c", "/etc/nats/nats.conf"]
+    environment:
+      <<: *nats-token
     volumes:
       - nats3-data:/data
       - ./nats-config/nats3.conf:/etc/nats/nats.conf:ro
@@ -76,6 +87,7 @@ services:
     environment:
       - PORT=8080
       - NATS_URL=nats://nats1:4222,nats://nats2:4222,nats://nats3:4222
+      - NATS_TOKEN=${NATS_AUTH_TOKEN:-natsui-dev-token}
       - LOG_LEVEL=info
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro

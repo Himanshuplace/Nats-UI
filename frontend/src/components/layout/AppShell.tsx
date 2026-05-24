@@ -123,15 +123,16 @@ function ConnectForm() {
 
   const handleConnect = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    const fd   = new FormData(e.currentTarget)
-    const url  = fd.get('url') as string
-    const name = (fd.get('name') as string) || url
+    const fd    = new FormData(e.currentTarget)
+    const url   = fd.get('url') as string
+    const name  = (fd.get('name') as string) || url
+    const token = (fd.get('token') as string) || undefined
 
     setLoading(true)
     setStatus(null)
     try {
       const { api } = await import('@/lib/api')
-      const res = await api.connections.connect({ name, url })
+      const res = await api.connections.connect({ name, url, token })
       setActive(res.id)
       setStatus({ ok: true, msg: `Connected! JetStream: ${res.jetstream}` })
     } catch (err: any) {
@@ -143,16 +144,29 @@ function ConnectForm() {
 
   return (
     <form onSubmit={handleConnect} className="space-y-3">
-      <div>
-        <label className="text-2xs font-mono text-text-muted uppercase tracking-widest block mb-1">
-          Connection Name
-        </label>
-        <input
-          name="name"
-          type="text"
-          placeholder="prod-us-east-1"
-          className="w-full bg-bg-surface border border-bg-border rounded px-3 py-2 text-xs font-mono text-text-primary placeholder-text-muted outline-none focus:border-accent-cyan/50"
-        />
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-2xs font-mono text-text-muted uppercase tracking-widest block mb-1">
+            Connection Name
+          </label>
+          <input
+            name="name"
+            type="text"
+            placeholder="prod-us-east-1"
+            className="w-full bg-bg-surface border border-bg-border rounded px-3 py-2 text-xs font-mono text-text-primary placeholder-text-muted outline-none focus:border-accent-cyan/50"
+          />
+        </div>
+        <div>
+          <label className="text-2xs font-mono text-text-muted uppercase tracking-widest block mb-1">
+            Auth Token <span className="normal-case text-text-muted/60">(optional)</span>
+          </label>
+          <input
+            name="token"
+            type="password"
+            placeholder="natsui-dev-token"
+            className="w-full bg-bg-surface border border-bg-border rounded px-3 py-2 text-xs font-mono text-text-primary placeholder-text-muted outline-none focus:border-accent-cyan/50"
+          />
+        </div>
       </div>
       <div>
         <label className="text-2xs font-mono text-text-muted uppercase tracking-widest block mb-1">
@@ -181,6 +195,10 @@ function ConnectForm() {
           </span>
         )}
       </div>
+      <p className="text-2xs font-mono text-text-muted/60">
+        The NATS cluster in docker-compose uses token auth by default.
+        Set <code className="text-accent-cyan">NATS_AUTH_TOKEN</code> in your environment (default: <code className="text-accent-cyan">natsui-dev-token</code>).
+      </p>
     </form>
   )
 }

@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -121,103 +124,142 @@ func (a *Aggregator) broadcastTopology(ctx context.Context) {
 	}
 }
 
-// CollectClusterTopology fetches varz/routez and builds a ClusterInfo.
+// serverAddr holds the parsed host/port pair from a NATS URL.
+type serverAddr struct {
+	host       string
+	clientPort int
+}
+
+// parseServerAddrs splits a (possibly comma-separated) NATS URL list and returns
+// each server's host and client port. This lets us derive the monitoring port for
+// each node without relying on routez internal IPs (which aren't reachable from
+// the host when NATS runs inside Docker).
+func parseServerAddrs(rawURL string) []serverAddr {
+	parts := strings.Split(rawURL, ",")
+	out := make([]serverAddr, 0, len(parts))
+	seen := map[string]bool{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		u, err := url.Parse(part)
+		if err != nil {
+			continue
+		}
+		host := u.Hostname()
+		if host == "" {
+			continue
+		}
+		port := 4222
+		if p, err := strconv.Atoi(u.Port()); err == nil && p > 0 {
+			port = p
+		}
+		key := fmt.Sprintf("%s:%d", host, port)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, serverAddr{host: host, clientPort: port})
+	}
+	return out
+}
+
+// monitorPort derives the HTTP monitoring port from a NATS client port.
+// NATS convention: monitoring = clientPort + (8222 - 4222) = clientPort + 4000.
+// Falls back to 8222 if the result is out of range.
+func monitorPort(clientPort int) int {
+	m := clientPort + 4000
+	if m < 1025 || m > 65534 {
+		return 8222
+	}
+	return m
+}
+
+// CollectClusterTopology builds a ClusterInfo by fetching varz from every server
+// address listed in the connection profile URL. This works whether NATS nodes are
+// running locally, behind port-mapped Docker containers, or on real hosts — because
+// we use the same addresses the client already knows how to reach, not the Docker-
+// internal IPs that routez would return.
 func (a *Aggregator) CollectClusterTopology(ctx context.Context, mc *natsmgr.ManagedConn) (*types.ClusterInfo, error) {
-	varz, err := a.fetchVarz(ctx, mc.Profile.Host, mc.Profile.MonitorPort)
-	if err != nil {
-		return nil, err
+	addrs := parseServerAddrs(mc.Profile.URL)
+	// Always include the primary address even if URL parsing produced nothing
+	if len(addrs) == 0 {
+		addrs = []serverAddr{{host: mc.Profile.Host, clientPort: mc.Profile.ClientPort}}
 	}
 
-	clusterName := stringOrEmpty(varz["cluster"])
-	if clusterName == "" {
-		clusterName = mc.Profile.Name
+	var nodes []types.NodeInfo
+	clusterName := mc.Profile.Name
+
+	for _, addr := range addrs {
+		mp := monitorPort(addr.clientPort)
+		// Override with explicit MonitorPort for the primary node
+		if addr.host == mc.Profile.Host && addr.clientPort == mc.Profile.ClientPort && mc.Profile.MonitorPort > 0 {
+			mp = mc.Profile.MonitorPort
+		}
+
+		varz, err := a.fetchVarz(ctx, addr.host, mp)
+		if err != nil {
+			slog.Debug("topology: varz fetch failed", "host", addr.host, "port", mp, "err", err)
+			continue
+		}
+
+		if cn := stringOrEmpty(varz["cluster"]); cn != "" {
+			clusterName = cn
+		}
+
+		node := types.NodeInfo{
+			ID:            stringOrEmpty(varz["server_id"]),
+			Name:          stringOrEmpty(varz["server_name"]),
+			Host:          addr.host,
+			Port:          addr.clientPort,
+			Version:       stringOrEmpty(varz["version"]),
+			Clients:       int64OrZero(varz["connections"]),
+			Subscriptions: int64OrZero(varz["subscriptions"]),
+			InMsgs:        int64OrZero(varz["in_msgs"]),
+			OutMsgs:       int64OrZero(varz["out_msgs"]),
+			InBytes:       int64OrZero(varz["in_bytes"]),
+			OutBytes:      int64OrZero(varz["out_bytes"]),
+			SlowClients:   int64OrZero(varz["slow_consumers"]),
+			Uptime:        stringOrEmpty(varz["uptime"]),
+			JetStream:     mc.IsJetStream(),
+			Health:        types.HealthOK,
+		}
+		if node.ID == "" {
+			node.ID = fmt.Sprintf("%s:%d", addr.host, addr.clientPort)
+		}
+		if node.Name == "" {
+			node.Name = node.ID
+		}
+		if node.SlowClients > 0 {
+			node.Health = types.HealthDegraded
+		}
+		nodes = append(nodes, node)
 	}
 
-	node := types.NodeInfo{
-		ID:            stringOrEmpty(varz["server_id"]),
-		Name:          stringOrEmpty(varz["server_name"]),
-		Host:          mc.Profile.Host,
-		Port:          mc.Profile.ClientPort,
-		Version:       stringOrEmpty(varz["version"]),
-		Clients:       int64OrZero(varz["connections"]),
-		Subscriptions: int64OrZero(varz["subscriptions"]),
-		InMsgs:        int64OrZero(varz["in_msgs"]),
-		OutMsgs:       int64OrZero(varz["out_msgs"]),
-		InBytes:       int64OrZero(varz["in_bytes"]),
-		OutBytes:      int64OrZero(varz["out_bytes"]),
-		SlowClients:   int64OrZero(varz["slow_consumers"]),
-		Uptime:        stringOrEmpty(varz["uptime"]),
-		JetStream:     mc.IsJetStream(),
-		Health:        types.HealthOK,
-	}
-	// Use connection ID as fallback node ID
-	if node.ID == "" {
-		node.ID = mc.ID
+	if len(nodes) == 0 {
+		return nil, fmt.Errorf("could not reach any NATS node for cluster %s", mc.ID)
 	}
 
-	if node.SlowClients > 0 {
-		node.Health = types.HealthDegraded
+	// Build a full-mesh route graph between all reachable nodes
+	routes := make([]types.RouteInfo, 0)
+	for i := 0; i < len(nodes); i++ {
+		for j := i + 1; j < len(nodes); j++ {
+			routes = append(routes, types.RouteInfo{
+				From:    nodes[i].ID,
+				To:      nodes[j].ID,
+				Healthy: true,
+			})
+		}
 	}
 
 	cluster := &types.ClusterInfo{
 		ID:       mc.ID,
 		Name:     clusterName,
-		Nodes:    []types.NodeInfo{node},
-		Routes:   []types.RouteInfo{},
+		Nodes:    nodes,
+		Routes:   routes,
 		Health:   types.HealthOK,
-		NumNodes: 1,
+		NumNodes: len(nodes),
 	}
 
-	// Fetch routez to discover cluster peers
-	routes, err := a.fetchRoutez(ctx, mc.Profile.Host, mc.Profile.MonitorPort)
-	if err == nil {
-		seen := map[string]bool{mc.Profile.Host: true}
-		for _, route := range routes {
-			ip, _ := route["ip"].(string)
-			if ip == "" {
-				continue
-			}
-			if seen[ip] {
-				continue
-			}
-			seen[ip] = true
-
-			peerVarz, perr := a.fetchVarz(ctx, ip, mc.Profile.MonitorPort)
-			if perr != nil {
-				continue
-			}
-			peerNode := types.NodeInfo{
-				ID:            stringOrEmpty(peerVarz["server_id"]),
-				Name:          stringOrEmpty(peerVarz["server_name"]),
-				Host:          ip,
-				Port:          4222,
-				Version:       stringOrEmpty(peerVarz["version"]),
-				Clients:       int64OrZero(peerVarz["connections"]),
-				Subscriptions: int64OrZero(peerVarz["subscriptions"]),
-				InMsgs:        int64OrZero(peerVarz["in_msgs"]),
-				OutMsgs:       int64OrZero(peerVarz["out_msgs"]),
-				InBytes:       int64OrZero(peerVarz["in_bytes"]),
-				OutBytes:      int64OrZero(peerVarz["out_bytes"]),
-				SlowClients:   int64OrZero(peerVarz["slow_consumers"]),
-				Uptime:        stringOrEmpty(peerVarz["uptime"]),
-				JetStream:     mc.IsJetStream(),
-				Health:        types.HealthOK,
-			}
-			if peerNode.ID == "" {
-				peerNode.ID = ip
-			}
-			cluster.Nodes = append(cluster.Nodes, peerNode)
-			cluster.Routes = append(cluster.Routes, types.RouteInfo{
-				From:    node.ID,
-				To:      peerNode.ID,
-				Healthy: true,
-			})
-		}
-		cluster.NumNodes = len(cluster.Nodes)
-	}
-
-	// Set cluster health based on node health
-	for _, n := range cluster.Nodes {
+	for _, n := range nodes {
 		if n.Health != types.HealthOK {
 			cluster.Health = types.HealthDegraded
 			break

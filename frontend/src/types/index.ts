@@ -183,6 +183,12 @@ export interface PublishResult {
   accepted: boolean
 }
 
+export interface SubjectInfo {
+  subject: string
+  stream?: string
+  source: 'stream' | 'consumer'
+}
+
 // ── Metrics ───────────────────────────────────────────────────────────────────
 
 export interface ThroughputPoint {

@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   Play, Square, Trash2, Filter,
-  ChevronDown, ChevronRight, Clock, Radio,
+  ChevronDown, ChevronRight, Clock, Radio, Layers,
 } from 'lucide-react'
 import { useDataStore, useUIStore } from '@/store'
 import { useTail, useTailSubject } from '@/hooks/useWebSocket'
@@ -34,9 +34,7 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
   const [autoScroll, setAutoScroll]         = useState(true)
   const [paused, setPaused]                 = useState(false)
 
-  // Stream tail key: "{clusterId}:{stream}"
   const streamKey  = `${clusterId}:${selectedStream}`
-  // Subject tail key: "subj:{clusterId}:{pattern}"
   const subjectKey = `subj:${clusterId}:${subjectPattern}`
   const activeKey  = mode === 'stream' ? streamKey : subjectKey
 
@@ -45,8 +43,8 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
 
   const { data: streamList } = useQuery({
     queryKey: ['streams', clusterId],
-    queryFn: () => api.streams.list(clusterId),
-    enabled: Boolean(clusterId),
+    queryFn:  () => api.streams.list(clusterId),
+    enabled:  Boolean(clusterId),
     refetchInterval: 15_000,
     staleTime: 10_000,
   })
@@ -84,6 +82,7 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
   const handleToggle = useCallback(() => {
     if (isActive) {
       tail.stop()
+      setPaused(false)
     } else {
       if (mode === 'stream' && !selectedStream) return
       if (mode === 'subject' && !subjectPattern.trim()) return
@@ -95,6 +94,7 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
     if (isActive) tail.stop()
     setMode(next)
     setFilterText('')
+    setPaused(false)
   }
 
   const totalBytes = useMemo(
@@ -106,32 +106,35 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
 
   return (
     <div className="flex flex-col h-full bg-bg-base">
-      {/* Mode tabs */}
+
+      {/* ── Mode tabs ──────────────────────────────────────────────────────── */}
       <div className="flex items-center border-b border-bg-border bg-bg-elevated flex-shrink-0">
-        {([['stream', 'Stream Tail'], ['subject', 'Subject Tail']] as const).map(([m, label]) => (
+        {([['stream', 'Stream Tail', Layers], ['subject', 'Subject Tail', Radio]] as const).map(([m, label, Icon]) => (
           <button
             key={m}
             onClick={() => switchMode(m)}
             className={cn(
-              'flex items-center gap-1.5 px-4 py-2 text-xs font-mono font-medium border-b-2 transition-colors',
+              'flex items-center gap-1.5 px-4 py-2.5 text-xs font-mono font-medium border-b-2 transition-colors',
               mode === m
                 ? 'border-accent-cyan text-accent-cyan bg-accent-cyan/5'
-                : 'border-transparent text-text-muted hover:text-text-secondary',
+                : 'border-transparent text-text-muted hover:text-text-secondary hover:bg-bg-hover',
             )}
           >
-            {m === 'subject' && <Radio className="w-3 h-3" />}
+            <Icon className="w-3.5 h-3.5" />
             {label}
           </button>
         ))}
       </div>
 
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-bg-border bg-bg-elevated flex-shrink-0">
+      {/* ── Controls toolbar ───────────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-bg-border bg-bg-elevated flex-shrink-0 flex-wrap">
+
+        {/* Stream / Subject selector */}
         {mode === 'stream' ? (
           <select
             value={selectedStream}
             onChange={e => { if (isActive) streamTail.stop(); setSelectedStream(e.target.value) }}
-            className="bg-bg-surface border border-bg-border text-text-secondary text-xs font-mono rounded px-2 py-1 outline-none focus:border-accent-cyan/50"
+            className="bg-bg-surface border border-bg-border text-text-secondary text-xs font-mono rounded px-2 py-1.5 outline-none focus:border-accent-cyan/50 min-w-[160px]"
           >
             <option value="">— select stream —</option>
             {streams.map(s => (
@@ -139,32 +142,48 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
             ))}
           </select>
         ) : (
-          <div className="flex items-center gap-1.5 bg-bg-surface border border-bg-border rounded px-2 py-1">
+          <div className="flex items-center gap-1.5 bg-bg-surface border border-bg-border rounded px-2 py-1.5 focus-within:border-accent-cyan/50 transition-colors">
             <Radio className="w-3 h-3 text-text-muted flex-shrink-0" />
             <input
               type="text"
               value={subjectPattern}
               onChange={e => { if (isActive) subjectTail.stop(); setSubjectPattern(e.target.value) }}
               placeholder="orders.*  or  logs.>  or  >"
-              className="bg-transparent text-xs font-mono text-text-primary placeholder-text-muted outline-none w-52"
+              className="bg-transparent text-xs font-mono text-text-primary placeholder-text-muted outline-none w-44"
               onKeyDown={e => { if (e.key === 'Enter' && !isActive && canStart) tail.start() }}
             />
           </div>
         )}
 
-        <Button variant={isActive ? 'danger' : 'primary'} size="xs" onClick={handleToggle} disabled={!canStart}>
-          {isActive ? <><Square className="w-3 h-3" /> Stop</> : <><Play className="w-3 h-3" /> Tail</>}
+        {/* Start / Stop */}
+        <Button
+          variant={isActive ? 'danger' : 'primary'}
+          size="xs"
+          onClick={handleToggle}
+          disabled={!canStart && !isActive}
+        >
+          {isActive
+            ? <><Square className="w-3 h-3" /> Stop</>
+            : <><Play className="w-3 h-3" /> Tail</>}
         </Button>
 
+        {/* Pause (only when active) */}
         {isActive && (
           <Button variant="ghost" size="xs" onClick={() => setPaused(p => !p)}>
             {paused ? 'Resume' : 'Pause'}
           </Button>
         )}
 
-        <Button variant="ghost" size="xs" onClick={tail.clear}><Trash2 className="w-3 h-3" /></Button>
+        {/* Clear */}
+        <Button variant="ghost" size="xs" onClick={() => { tail.clear(); setExpandedId(null) }}>
+          <Trash2 className="w-3 h-3" />
+        </Button>
 
-        <div className="flex items-center gap-1.5 flex-1 bg-bg-surface border border-bg-border rounded px-2 py-1">
+        {/* Separator */}
+        <div className="h-4 w-px bg-bg-border mx-1" />
+
+        {/* Filter */}
+        <div className="flex items-center gap-1.5 flex-1 min-w-[160px] bg-bg-surface border border-bg-border rounded px-2 py-1.5 focus-within:border-accent-cyan/50 transition-colors">
           <Filter className="w-3 h-3 text-text-muted flex-shrink-0" />
           <input
             type="text"
@@ -173,19 +192,26 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
             onChange={e => setFilterText(e.target.value)}
             className="flex-1 bg-transparent text-xs font-mono text-text-primary placeholder-text-muted outline-none min-w-0"
           />
-          {filterText && <button onClick={() => setFilterText('')} className="text-text-muted hover:text-text-primary">×</button>}
+          {filterText && (
+            <button onClick={() => setFilterText('')} className="text-text-muted hover:text-text-primary text-xs">×</button>
+          )}
         </div>
 
+        {/* Stats */}
         <div className="flex items-center gap-3 text-2xs font-mono text-text-muted flex-shrink-0">
-          <span>{filtered.length.toLocaleString()} msgs</span>
+          <span className="tabular-nums">{filtered.length.toLocaleString()} msgs</span>
           <span>{formatBytes(totalBytes)}</span>
         </div>
 
+        {/* Auto-scroll toggle */}
         <button
           onClick={() => setAutoScroll(a => !a)}
+          title="Auto-scroll to latest message"
           className={cn(
             'flex items-center gap-1 text-2xs font-mono px-1.5 py-0.5 rounded border transition-colors',
-            autoScroll ? 'border-accent-cyan/30 text-accent-cyan bg-accent-cyan/5' : 'border-bg-border text-text-muted',
+            autoScroll
+              ? 'border-accent-cyan/40 text-accent-cyan bg-accent-cyan/5'
+              : 'border-bg-border text-text-muted hover:border-bg-border/80',
           )}
         >
           <ChevronDown className="w-3 h-3" />
@@ -193,32 +219,36 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
         </button>
       </div>
 
-      {/* Column headers */}
-      <div className="flex items-center px-4 py-1 border-b border-bg-border bg-bg-elevated text-2xs font-mono text-text-muted flex-shrink-0 select-none">
+      {/* ── Column headers ─────────────────────────────────────────────────── */}
+      <div className="flex items-center px-4 py-1 border-b border-bg-border bg-bg-elevated text-2xs font-mono text-text-muted uppercase tracking-wider flex-shrink-0 select-none">
         <span className="w-8" />
-        <span className="w-28 flex-shrink-0">TIMESTAMP</span>
-        <span className="w-14 flex-shrink-0 text-center">SEQ</span>
-        <span className="flex-1">SUBJECT</span>
-        <span className="w-20 flex-shrink-0 text-right">SIZE</span>
-        <span className="w-16 flex-shrink-0 text-right">STATUS</span>
+        <span className="w-32 flex-shrink-0">Timestamp</span>
+        <span className="w-14 flex-shrink-0 text-center">Seq</span>
+        <span className="flex-1">Subject</span>
+        <span className="w-20 flex-shrink-0 text-right">Size</span>
+        <span className="w-20 flex-shrink-0 text-right">Status</span>
       </div>
 
-      {/* Message list */}
+      {/* ── Message list ───────────────────────────────────────────────────── */}
       {filtered.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center">
+        <div className="flex-1 flex flex-col items-center justify-center gap-4">
           <EmptyState
             icon={<Clock className="w-8 h-8" />}
             title={isActive ? 'Waiting for messages…' : 'No messages yet'}
-            description={!isActive ? (
-              mode === 'stream'
-                ? (selectedStream ? 'Press Tail to start streaming' : 'Select a stream first')
-                : (subjectPattern ? 'Press Tail to subscribe' : 'Enter a subject pattern  (e.g.  orders.*  or  >)')
-            ) : undefined}
+            description={!isActive
+              ? (mode === 'stream'
+                ? (selectedStream ? 'Click Tail to start streaming live messages' : 'Select a stream first')
+                : (subjectPattern ? 'Click Tail to subscribe to this subject pattern' : 'Enter a subject pattern  (e.g. orders.*  or  >)'))
+              : undefined}
           />
-          {isActive && (
-            <div className="flex gap-1 mt-4">
-              {[0.1, 0.2, 0.3].map(d => (
-                <span key={d} className="w-1.5 h-1.5 rounded-full bg-accent-cyan animate-pulse" style={{ animationDelay: `${d}s` }} />
+          {isActive && !paused && (
+            <div className="flex gap-1.5">
+              {[0, 0.15, 0.3].map(d => (
+                <span
+                  key={d}
+                  className="w-2 h-2 rounded-full bg-accent-cyan animate-pulse"
+                  style={{ animationDelay: `${d}s` }}
+                />
               ))}
             </div>
           )}
@@ -234,9 +264,19 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
                   key={vrow.key}
                   data-index={vrow.index}
                   ref={virtualizer.measureElement}
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vrow.start}px)` }}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${vrow.start}px)`,
+                  }}
                 >
-                  <MessageRow msg={msg} expanded={expanded} onToggle={() => setExpandedId(expanded ? null : (msg.id ?? null))} />
+                  <MessageRow
+                    msg={msg}
+                    expanded={expanded}
+                    onToggle={() => setExpandedId(expanded ? null : (msg.id ?? null))}
+                  />
                 </div>
               )
             })}
@@ -244,16 +284,35 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
         </div>
       )}
 
-      {/* Status bar */}
-      <div className="flex items-center gap-4 px-4 py-1 border-t border-bg-border bg-bg-elevated text-2xs font-mono text-text-muted flex-shrink-0">
+      {/* ── Status bar ─────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-4 px-4 py-1.5 border-t border-bg-border bg-bg-elevated text-2xs font-mono text-text-muted flex-shrink-0">
+        {/* Live indicator */}
         <span className="flex items-center gap-1.5">
-          <span className={cn('w-1.5 h-1.5 rounded-full', isActive ? 'bg-accent-green animate-pulse' : 'bg-text-muted')} />
-          {isActive ? (paused ? 'PAUSED' : 'LIVE') : 'STOPPED'}
+          <span className={cn(
+            'w-1.5 h-1.5 rounded-full transition-colors',
+            isActive && !paused ? 'bg-accent-green animate-pulse' : isActive ? 'bg-accent-yellow' : 'bg-text-muted',
+          )} />
+          <span className={cn(
+            isActive && !paused ? 'text-accent-green' : isActive ? 'text-accent-yellow' : '',
+          )}>
+            {isActive ? (paused ? 'PAUSED' : 'LIVE') : 'STOPPED'}
+          </span>
         </span>
-        {mode === 'stream' && selectedStream && <span>stream: <span className="text-accent-cyan">{selectedStream}</span></span>}
-        {mode === 'subject' && subjectPattern && <span>pattern: <span className="text-accent-cyan">{subjectPattern}</span></span>}
-        {filterText && <span className="text-accent-yellow">filter: {filterText}</span>}
-        <span className="ml-auto">{messages.length.toLocaleString()} total | {filtered.length.toLocaleString()} visible</span>
+
+        {mode === 'stream' && selectedStream && (
+          <span>stream: <span className="text-accent-cyan">{selectedStream}</span></span>
+        )}
+        {mode === 'subject' && subjectPattern && (
+          <span>pattern: <span className="text-accent-cyan">{subjectPattern}</span></span>
+        )}
+        {filterText && (
+          <span>filter: <span className="text-accent-yellow">{filterText}</span></span>
+        )}
+
+        <span className="ml-auto tabular-nums">
+          {messages.length.toLocaleString()} total
+          {filterText && <> · {filtered.length.toLocaleString()} visible</>}
+        </span>
       </div>
     </div>
   )
@@ -261,8 +320,13 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
 
 // ── Message Row ───────────────────────────────────────────────────────────────
 
-function MessageRow({ msg, expanded, onToggle }: { msg: TailedMessage; expanded: boolean; onToggle: () => void }) {
+function MessageRow({ msg, expanded, onToggle }: {
+  msg: TailedMessage
+  expanded: boolean
+  onToggle: () => void
+}) {
   const isJSON = Boolean(msg.payloadText && tryParseJSON(msg.payloadText).ok)
+
   return (
     <div className={cn(
       'border-b border-bg-border/50 cursor-pointer select-text',
@@ -271,21 +335,31 @@ function MessageRow({ msg, expanded, onToggle }: { msg: TailedMessage; expanded:
     )}>
       <div className="flex items-center px-4 py-1.5" onClick={onToggle}>
         <span className="w-8 text-text-muted flex-shrink-0">
-          {expanded ? <ChevronDown className="w-3 h-3 inline" /> : <ChevronRight className="w-3 h-3 inline" />}
+          {expanded
+            ? <ChevronDown className="w-3 h-3 inline" />
+            : <ChevronRight className="w-3 h-3 inline" />}
         </span>
-        <span className="w-28 text-text-muted flex-shrink-0 truncate">
+        <span className="w-32 text-text-muted flex-shrink-0 truncate tabular-nums">
           {msg.timestamp ? formatTimestamp(msg.timestamp).slice(11, 23) : '—'}
         </span>
-        <span className="w-14 text-text-muted flex-shrink-0 text-center tabular-nums">{msg.seq || '—'}</span>
+        <span className="w-14 text-text-muted flex-shrink-0 text-center tabular-nums">
+          {msg.seq || '—'}
+        </span>
         <span className="flex-1 text-accent-cyan truncate">{msg.subject}</span>
         <span className="w-20 text-text-muted text-right flex-shrink-0">{formatBytes(msg.payloadSize)}</span>
-        <span className="w-16 text-right flex-shrink-0">
-          {msg.redelivered ? <Badge variant="yellow" size="xs">REDELIV</Badge>
-            : isJSON ? <Badge variant="ghost" size="xs">JSON</Badge>
+        <span className="w-20 text-right flex-shrink-0">
+          {msg.redelivered
+            ? <Badge variant="yellow" size="xs">REDELIV</Badge>
+            : isJSON
+            ? <Badge variant="ghost" size="xs">JSON</Badge>
             : null}
         </span>
       </div>
-      {expanded && <div className="px-10 pb-3"><PayloadViewer message={msg} /></div>}
+      {expanded && (
+        <div className="px-10 pb-3">
+          <PayloadViewer message={msg} />
+        </div>
+      )}
     </div>
   )
 }

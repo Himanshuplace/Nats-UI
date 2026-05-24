@@ -286,6 +286,13 @@ type ReplayProgress struct {
 	Error       string    `json:"error,omitempty"`
 }
 
+// SubjectInfo describes a known NATS subject with its stream and source.
+type SubjectInfo struct {
+	Subject string `json:"subject"`
+	Stream  string `json:"stream,omitempty"`
+	Source  string `json:"source"` // "stream" | "consumer"
+}
+
 // ── Connection profiles ───────────────────────────────────────────────────────
 
 type ConnectionProfile struct {

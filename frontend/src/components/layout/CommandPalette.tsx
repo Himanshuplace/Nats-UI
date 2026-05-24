@@ -2,7 +2,7 @@ import { useEffect, useCallback } from 'react'
 import { Command } from 'cmdk'
 import {
   Activity, Layers, Users, Radio, RotateCcw, BarChart2,
-  Server, Plug, Settings, Search, Zap, X,
+  Server, Plug, Settings, Search, Zap, X, Shield,
 } from 'lucide-react'
 import { useUIStore } from '@/store'
 import { cn } from '@/components/ui'
@@ -18,6 +18,7 @@ const GROUPS = [
       { id: 'tail',      label: 'Message Tail',      icon: Radio,     shortcut: ['G', 'L'], view: 'tail' as const },
       { id: 'replay',    label: 'Replay Studio',     icon: RotateCcw, shortcut: ['G', 'R'], view: 'replay' as const },
       { id: 'metrics',   label: 'Metrics Dashboard', icon: BarChart2, shortcut: ['G', 'M'], view: 'metrics' as const },
+      { id: 'accounts',  label: 'Accounts & Users',  icon: Shield,    shortcut: ['G', 'A'], view: 'accounts' as const },
       { id: 'settings',  label: 'Settings',          icon: Settings,  shortcut: ['G', ','], view: 'settings' as const },
     ],
   },

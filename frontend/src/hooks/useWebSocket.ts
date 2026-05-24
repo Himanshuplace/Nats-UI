@@ -11,14 +11,16 @@ const nextId = () => `msg-${++idCounter}`
  * Call once at the app root.
  */
 export function useWebSocketBridge(): void {
-  const setWSConnected  = useUIStore(s => s.setWSConnected)
-  const setCluster      = useDataStore(s => s.setCluster)
-  const setStreams       = useDataStore(s => s.setStreams)
-  const setConsumers    = useDataStore(s => s.setConsumers)
-  const pushThroughput  = useDataStore(s => s.pushThroughput)
-  const pushTailMessage = useDataStore(s => s.pushTailMessage)
-  const addDiscovered   = useDataStore(s => s.addDiscoveredServer)
-  const setReplay       = useDataStore(s => s.setReplayProgress)
+  const setWSConnected       = useUIStore(s => s.setWSConnected)
+  const setCluster           = useDataStore(s => s.setCluster)
+  const setStreams            = useDataStore(s => s.setStreams)
+  const setConsumers         = useDataStore(s => s.setConsumers)
+  const pushThroughput       = useDataStore(s => s.pushThroughput)
+  const pushTailMessage      = useDataStore(s => s.pushTailMessage)
+  const addDiscovered        = useDataStore(s => s.addDiscoveredServer)
+  const removeDiscovered     = useDataStore(s => s.removeDiscoveredServer)
+  const setReplay            = useDataStore(s => s.setReplayProgress)
+  const setTailActive        = useDataStore(s => s.setTailActive)
 
   useEffect(() => {
     ws.connect()
@@ -26,8 +28,7 @@ export function useWebSocketBridge(): void {
     const unsubs: Array<() => void> = []
 
     unsubs.push(ws.on('connected', () => setWSConnected(true)))
-    unsubs.push(ws.on('*', (e) => {
-      // Track connection via any successful event
+    unsubs.push(ws.on('*', () => {
       setWSConnected(true)
     }))
 
@@ -45,7 +46,8 @@ export function useWebSocketBridge(): void {
     }))
 
     unsubs.push(ws.on<TailedMessage>('message.received', ({ data }) => {
-      const key = `${data.stream}`
+      // Use clusterId from message (set by backend) for correct per-cluster routing
+      const key = `${data.clusterId ?? ''}:${data.stream}`
       pushTailMessage(key, { ...data, id: nextId() })
     }))
 
@@ -53,9 +55,28 @@ export function useWebSocketBridge(): void {
       addDiscovered(data)
     }))
 
+    unsubs.push(ws.on<{ id: string }>('discovery.lost', ({ data }) => {
+      removeDiscovered(data.id)
+    }))
+
+    unsubs.push(ws.on('tail.started', ({ data }) => {
+      const d = data as { clusterId: string; stream: string }
+      setTailActive(`${d.clusterId}:${d.stream}`, true)
+    }))
+
+    unsubs.push(ws.on('tail.stopped', ({ data }) => {
+      const d = data as { clusterId: string; stream: string }
+      setTailActive(`${d.clusterId}:${d.stream}`, false)
+    }))
+
     unsubs.push(ws.on('replay.progress', ({ data }) => {
       const p = data as any
       setReplay(p.id, p)
+    }))
+
+    unsubs.push(ws.on('error', ({ data }) => {
+      const e = data as { code?: string; message?: string }
+      console.error('[ws] server error', e.code, e.message)
     }))
 
     // Detect disconnection via WebSocket close — poll state
@@ -94,21 +115,22 @@ export function useWSEvent<T = unknown>(
 export function useTail(clusterId: string, stream: string) {
   const clearTail   = useDataStore(s => s.clearTail)
   const setActive   = useDataStore(s => s.setTailActive)
-  const key = `${stream}`
+  // Key must match the backend topic and WS bridge key
+  const key = `${clusterId}:${stream}`
 
   const start = useCallback(() => {
+    if (!clusterId || !stream) return
     setActive(key, true)
     ws.send('tail.start', { clusterId, stream })
-    ws.subscribe(`tail:${clusterId}:${stream}`)
-  }, [clusterId, stream, key])
+  }, [clusterId, stream, key, setActive])
 
   const stop = useCallback(() => {
+    if (!clusterId || !stream) return
     ws.send('tail.stop', { clusterId, stream })
-    ws.unsubscribe(`tail:${clusterId}:${stream}`)
     setActive(key, false)
-  }, [clusterId, stream, key])
+  }, [clusterId, stream, key, setActive])
 
-  const clear = useCallback(() => clearTail(key), [key])
+  const clear = useCallback(() => clearTail(key), [key, clearTail])
 
   return { start, stop, clear }
 }

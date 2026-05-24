@@ -17,18 +17,34 @@ import type { StreamInfo } from '@/types'
 
 export function StreamExplorer() {
   const [selectedStream, setSelectedStream] = useState<string | null>(null)
-  const [expandedSubjects, setExpandedSubjects] = useState(false)
+  const [filter, setFilter] = useState('')
   const activeClusters = useUIStore(s => s.activeClusters)
-  const clusterId = activeClusters[0] ?? 'default'
+  const clusterId = activeClusters[0] ?? ''
 
   const { data: streams, isLoading, error } = useQuery({
     queryKey: ['streams', clusterId],
     queryFn: () => api.streams.list(clusterId),
     refetchInterval: 5000,
-    enabled: Boolean(clusterId),
+    enabled: activeClusters.length > 0 && Boolean(clusterId),
   })
 
+  const filteredStreams = filter.trim()
+    ? streams?.filter(s => s.config.name.toLowerCase().includes(filter.toLowerCase()))
+    : streams
+
   const selected = streams?.find(s => s.config.name === selectedStream)
+
+  if (activeClusters.length === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-bg-base">
+        <EmptyState
+          icon={<Database className="w-10 h-10" />}
+          title="No cluster connected"
+          description="Go to Settings to connect to a NATS server first"
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full bg-bg-base">
@@ -48,6 +64,8 @@ export function StreamExplorer() {
         <div className="px-3 pb-2">
           <input
             type="text"
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
             placeholder="Filter streams..."
             className="w-full bg-bg-surface border border-bg-border rounded px-2 py-1 text-xs font-mono text-text-primary placeholder-text-muted outline-none focus:border-accent-cyan/50"
           />
@@ -74,7 +92,7 @@ export function StreamExplorer() {
             />
           )}
 
-          {streams?.map(stream => (
+          {filteredStreams?.map(stream => (
             <StreamListItem
               key={stream.config.name}
               stream={stream}
@@ -155,7 +173,8 @@ function StreamDetail({ stream, clusterId }: { stream: StreamInfo; clusterId: st
     refetchInterval: 5000,
   })
 
-  const setView = useUIStore(s => s.setView)
+  const setView        = useUIStore(s => s.setView)
+  const setActiveStream = useUIStore(s => s.setActiveStream)
 
   return (
     <div className="p-6 space-y-6">
@@ -180,7 +199,10 @@ function StreamDetail({ stream, clusterId }: { stream: StreamInfo; clusterId: st
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => setView('tail')}
+            onClick={() => {
+              setActiveStream(stream.config.name)
+              setView('tail')
+            }}
           >
             Tail Messages
           </Button>

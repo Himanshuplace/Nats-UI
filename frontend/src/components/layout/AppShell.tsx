@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { CommandPalette } from './CommandPalette'
@@ -11,6 +11,7 @@ const ConsumerInspector= lazy(() => import('@/components/consumers/ConsumerInspe
 const MessageTail      = lazy(() => import('@/components/tail/MessageTail').then(m => ({ default: m.MessageTail })))
 const ReplayStudio     = lazy(() => import('@/components/replay/ReplayStudio').then(m => ({ default: m.ReplayStudio })))
 const MetricsDashboard = lazy(() => import('@/components/metrics/MetricsDashboard').then(m => ({ default: m.MetricsDashboard })))
+const AccountsView     = lazy(() => import('@/components/accounts/AccountsView').then(m => ({ default: m.AccountsView })))
 
 function ViewFallback() {
   return (
@@ -21,7 +22,6 @@ function ViewFallback() {
 }
 
 function OverviewView() {
-  const clusters = Object.values(useUIStore(s => s)).length
   return (
     <div className="flex-1 overflow-y-auto p-6 bg-bg-base">
       <div className="max-w-4xl mx-auto space-y-6">
@@ -118,20 +118,26 @@ function SettingsView() {
 
 function ConnectForm() {
   const setActive = useUIStore(s => s.setActiveCluster)
+  const [status, setStatus]   = useState<{ ok: boolean; msg: string } | null>(null)
+  const [loading, setLoading] = useState(false)
 
   const handleConnect = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    const fd = new FormData(e.currentTarget)
+    const fd   = new FormData(e.currentTarget)
     const url  = fd.get('url') as string
-    const name = fd.get('name') as string || url
+    const name = (fd.get('name') as string) || url
 
+    setLoading(true)
+    setStatus(null)
     try {
       const { api } = await import('@/lib/api')
       const res = await api.connections.connect({ name, url })
       setActive(res.id)
-      alert(`Connected! JetStream: ${res.jetstream}`)
+      setStatus({ ok: true, msg: `Connected! JetStream: ${res.jetstream}` })
     } catch (err: any) {
-      alert(`Failed: ${err.message}`)
+      setStatus({ ok: false, msg: err.message ?? 'Connection failed' })
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -161,12 +167,20 @@ function ConnectForm() {
           className="w-full bg-bg-surface border border-bg-border rounded px-3 py-2 text-xs font-mono text-text-primary placeholder-text-muted outline-none focus:border-accent-cyan/50"
         />
       </div>
-      <button
-        type="submit"
-        className="px-4 py-2 bg-accent-cyan text-bg-base text-xs font-mono font-medium rounded hover:bg-accent-cyan/90 transition-colors"
-      >
-        Connect
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          type="submit"
+          disabled={loading}
+          className="px-4 py-2 bg-accent-cyan text-bg-base text-xs font-mono font-medium rounded hover:bg-accent-cyan/90 disabled:opacity-50 transition-colors"
+        >
+          {loading ? 'Connecting…' : 'Connect'}
+        </button>
+        {status && (
+          <span className={`text-xs font-mono ${status.ok ? 'text-accent-green' : 'text-accent-red'}`}>
+            {status.msg}
+          </span>
+        )}
+      </div>
     </form>
   )
 }
@@ -185,6 +199,7 @@ export function AppShell() {
       case 'tail':      return <Suspense fallback={<ViewFallback />}><MessageTail /></Suspense>
       case 'replay':    return <Suspense fallback={<ViewFallback />}><ReplayStudio /></Suspense>
       case 'metrics':   return <Suspense fallback={<ViewFallback />}><MetricsDashboard /></Suspense>
+      case 'accounts':  return <Suspense fallback={<ViewFallback />}><AccountsView /></Suspense>
       case 'dlq':       return <DLQPlaceholder />
       case 'settings':  return <SettingsView />
       default:          return <OverviewView />

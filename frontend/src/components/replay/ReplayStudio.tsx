@@ -19,7 +19,7 @@ type StartMode = 'seq' | 'time' | 'beginning'
 
 export function ReplayStudio() {
   const activeClusters = useUIStore(s => s.activeClusters)
-  const clusterId = activeClusters[0] ?? 'default'
+  const clusterId = activeClusters[0] ?? ''
   const replays = useDataStore(s => s.replay)
 
   const [stream,       setStream]       = useState('')
@@ -34,6 +34,7 @@ export function ReplayStudio() {
   const { data: streams } = useQuery({
     queryKey: ['streams', clusterId],
     queryFn: () => api.streams.list(clusterId),
+    enabled: activeClusters.length > 0 && Boolean(clusterId),
   })
 
   const handleStart = useCallback(() => {

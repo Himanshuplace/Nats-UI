@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -71,11 +72,11 @@ func main() {
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok","service":"natsui","clients":` +
-			string(rune('0'+hub.ClientCount())) + `}`))
+			strconv.Itoa(hub.ClientCount()) + `}`))
 	})
 
 	r.Route("/api/v1", func(r chi.Router) {
-		api.Mount(r, hub, pool, dm)
+		api.Mount(r, hub, pool, dm, agg)
 	})
 
 	port := env("PORT", "8080")

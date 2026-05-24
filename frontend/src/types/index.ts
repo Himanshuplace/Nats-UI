@@ -143,6 +143,7 @@ export interface ConsumerInfo {
 
 export interface TailedMessage {
   id?: string  // local generated ID for rendering
+  clusterId?: string
   stream: string
   subject: string
   seq: number
@@ -267,7 +268,33 @@ export type View =
   | 'replay'
   | 'metrics'
   | 'dlq'
+  | 'accounts'
   | 'settings'
+
+// ── Accounts & Users ──────────────────────────────────────────────────────────
+
+export interface NATSAccount {
+  name: string
+  connections: number
+  subscriptions: number
+  leafNodes: number
+  inMsgs: number
+  outMsgs: number
+  inBytes: number
+  outBytes: number
+  jetStream: boolean
+  users?: NATSUser[]
+}
+
+export interface NATSUser {
+  username: string
+  account: string
+  ip: string
+  port: number
+  subs: number
+  inMsgs: number
+  outMsgs: number
+}
 
 export interface Tab {
   id: string

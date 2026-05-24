@@ -5,16 +5,18 @@ import { formatNumber } from '@/lib/format'
 import type { View } from '@/types'
 
 const VIEW_LABELS: Record<View, string> = {
-  overview:  'Overview',
-  topology:  'Cluster Topology',
-  streams:   'Stream Explorer',
-  consumers: 'Consumer Inspector',
-  tail:      'Message Tail',
-  replay:    'Replay Studio',
-  metrics:   'Metrics Dashboard',
-  accounts:  'Accounts & Users',
-  dlq:       'Dead Letter Queue',
-  settings:  'Settings',
+  overview:   'Overview',
+  topology:   'Cluster Topology',
+  streams:    'Stream Explorer',
+  consumers:  'Consumer Inspector',
+  tail:       'Live Tail',
+  browser:    'Message Browser',
+  publisher:  'Publish Message',
+  replay:     'Replay Studio',
+  metrics:    'Metrics Dashboard',
+  accounts:   'Accounts & Users',
+  dlq:        'Dead Letter Queue',
+  settings:   'Settings',
 }
 
 export function TopBar() {

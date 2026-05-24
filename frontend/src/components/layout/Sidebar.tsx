@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import {
   Activity, Server, Layers, Users, Radio, RotateCcw,
   BarChart2, AlertTriangle, Settings, ChevronLeft, Plus, Wifi, WifiOff,
-  Shield,
+  Shield, DatabaseZap, Send,
 } from 'lucide-react'
 import { useUIStore, useDataStore } from '@/store'
 import { api } from '@/lib/api'
@@ -17,15 +17,17 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'overview',  label: 'Overview',        icon: Activity,       shortcut: 'O' },
-  { id: 'topology',  label: 'Topology',        icon: Server,         shortcut: 'T' },
-  { id: 'streams',   label: 'Streams',         icon: Layers,         shortcut: 'S' },
-  { id: 'consumers', label: 'Consumers',       icon: Users,          shortcut: 'C' },
-  { id: 'tail',      label: 'Message Tail',    icon: Radio,          shortcut: 'L' },
-  { id: 'replay',    label: 'Replay Studio',   icon: RotateCcw,      shortcut: 'R' },
-  { id: 'metrics',   label: 'Metrics',         icon: BarChart2,      shortcut: 'M' },
-  { id: 'accounts',  label: 'Accounts',        icon: Shield,         shortcut: 'A' },
-  { id: 'dlq',       label: 'Dead Letters',    icon: AlertTriangle,  shortcut: 'D' },
+  { id: 'overview',   label: 'Overview',          icon: Activity,       shortcut: 'O' },
+  { id: 'topology',   label: 'Topology',          icon: Server,         shortcut: 'T' },
+  { id: 'streams',    label: 'Streams',           icon: Layers,         shortcut: 'S' },
+  { id: 'consumers',  label: 'Consumers',         icon: Users,          shortcut: 'C' },
+  { id: 'tail',       label: 'Live Tail',         icon: Radio,          shortcut: 'L' },
+  { id: 'browser',    label: 'Message Browser',   icon: DatabaseZap,    shortcut: 'B' },
+  { id: 'publisher',  label: 'Publish',           icon: Send,           shortcut: 'P' },
+  { id: 'replay',     label: 'Replay Studio',     icon: RotateCcw,      shortcut: 'R' },
+  { id: 'metrics',    label: 'Metrics',           icon: BarChart2,      shortcut: 'M' },
+  { id: 'accounts',   label: 'Accounts',          icon: Shield,         shortcut: 'A' },
+  { id: 'dlq',        label: 'Dead Letters',      icon: AlertTriangle,  shortcut: 'D' },
 ]
 
 export function Sidebar() {

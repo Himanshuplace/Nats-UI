@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -25,7 +26,6 @@ type handler struct {
 	inspector  *jetstream.Inspector
 	aggregator *metrics.Aggregator
 
-	// tail/replay cancels keyed by clientID+":"+stream or replayID
 	cancelsMu sync.Mutex
 	cancels   map[string]context.CancelFunc
 }
@@ -43,7 +43,6 @@ func Mount(r chi.Router, hub *gateway.Hub, pool *natsmgr.Pool, dm *discovery.Man
 		cancels:    make(map[string]context.CancelFunc),
 	}
 
-	// Register WebSocket command handlers
 	h.registerWSHandlers()
 
 	// Discovery
@@ -68,6 +67,12 @@ func Mount(r chi.Router, hub *gateway.Hub, pool *natsmgr.Pool, dm *discovery.Man
 	// Consumers
 	r.Get("/clusters/{id}/streams/{stream}/consumers", h.listConsumers)
 	r.Get("/clusters/{id}/streams/{stream}/consumers/{consumer}", h.getConsumer)
+	r.Post("/clusters/{id}/streams/{stream}/consumers", h.createConsumer)
+	r.Delete("/clusters/{id}/streams/{stream}/consumers/{consumer}", h.deleteConsumer)
+
+	// Messages: browse stored + publish
+	r.Get("/clusters/{id}/streams/{stream}/messages", h.listMessages)
+	r.Post("/clusters/{id}/publish", h.publish)
 
 	// Metrics
 	r.Get("/clusters/{id}/metrics/throughput", h.metricsThroughput)
@@ -76,16 +81,19 @@ func Mount(r chi.Router, hub *gateway.Hub, pool *natsmgr.Pool, dm *discovery.Man
 	r.Get("/ws", hub.ServeWS)
 }
 
-// ── WebSocket command handlers ─────────────────────────────────────────────────
+// ── WebSocket command handlers ────────────────────────────────────────────────
 
 func (h *handler) registerWSHandlers() {
 	h.hub.RegisterHandler(gateway.CmdTailStart, h.handleTailStart)
 	h.hub.RegisterHandler(gateway.CmdTailStop, h.handleTailStop)
+	h.hub.RegisterHandler(gateway.CmdSubjectTailStart, h.handleSubjectTailStart)
+	h.hub.RegisterHandler(gateway.CmdSubjectTailStop, h.handleSubjectTailStop)
 	h.hub.RegisterHandler(gateway.CmdReplayStart, h.handleReplayStart)
 	h.hub.RegisterHandler(gateway.CmdReplayStop, h.handleReplayStop)
 	h.hub.RegisterHandler(gateway.CmdMetricsWatch, h.handleMetricsWatch)
 }
 
+// Stream-bound tail
 func (h *handler) handleTailStart(clientID string, payload json.RawMessage) {
 	var req struct {
 		ClusterID string `json:"clusterId"`
@@ -99,8 +107,6 @@ func (h *handler) handleTailStart(clientID string, payload json.RawMessage) {
 	}
 
 	cancelKey := clientID + ":tail:" + req.ClusterID + ":" + req.Stream
-
-	// Cancel any existing tail for this client+stream
 	h.cancelsMu.Lock()
 	if cancel, ok := h.cancels[cancelKey]; ok {
 		cancel()
@@ -110,7 +116,6 @@ func (h *handler) handleTailStart(clientID string, payload json.RawMessage) {
 	h.cancelsMu.Unlock()
 
 	topic := gateway.TopicTail + req.ClusterID + ":" + req.Stream
-
 	h.hub.BroadcastTopic(topic, gateway.EventTailStarted, map[string]string{
 		"clusterId": req.ClusterID,
 		"stream":    req.Stream,
@@ -151,8 +156,77 @@ func (h *handler) handleTailStop(clientID string, payload json.RawMessage) {
 	if req.ClusterID == "" {
 		req.ClusterID = "default"
 	}
-
 	cancelKey := clientID + ":tail:" + req.ClusterID + ":" + req.Stream
+	h.cancelsMu.Lock()
+	if cancel, ok := h.cancels[cancelKey]; ok {
+		cancel()
+		delete(h.cancels, cancelKey)
+	}
+	h.cancelsMu.Unlock()
+}
+
+// Raw NATS subject tail (no stream binding)
+func (h *handler) handleSubjectTailStart(clientID string, payload json.RawMessage) {
+	var req struct {
+		ClusterID string `json:"clusterId"`
+		Subject   string `json:"subject"`
+	}
+	if err := json.Unmarshal(payload, &req); err != nil || req.Subject == "" {
+		return
+	}
+	if req.ClusterID == "" {
+		req.ClusterID = "default"
+	}
+
+	cancelKey := clientID + ":subjtail:" + req.ClusterID + ":" + req.Subject
+	h.cancelsMu.Lock()
+	if cancel, ok := h.cancels[cancelKey]; ok {
+		cancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	h.cancels[cancelKey] = cancel
+	h.cancelsMu.Unlock()
+
+	h.hub.Broadcast(gateway.EventTailStarted, map[string]string{
+		"clusterId":     req.ClusterID,
+		"subjectFilter": req.Subject,
+	})
+
+	go func() {
+		defer func() {
+			h.cancelsMu.Lock()
+			delete(h.cancels, cancelKey)
+			h.cancelsMu.Unlock()
+			h.hub.Broadcast(gateway.EventTailStopped, map[string]string{
+				"clusterId":     req.ClusterID,
+				"subjectFilter": req.Subject,
+			})
+		}()
+
+		err := h.inspector.TailSubject(ctx, req.ClusterID, req.Subject, func(msg types.TailedMessage) {
+			h.hub.Broadcast(gateway.EventMessageReceived, msg)
+		})
+		if err != nil && ctx.Err() == nil {
+			h.hub.Broadcast(gateway.EventError, map[string]string{
+				"code":    "SUBJECT_TAIL_ERROR",
+				"message": err.Error(),
+			})
+		}
+	}()
+}
+
+func (h *handler) handleSubjectTailStop(clientID string, payload json.RawMessage) {
+	var req struct {
+		ClusterID string `json:"clusterId"`
+		Subject   string `json:"subject"`
+	}
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return
+	}
+	if req.ClusterID == "" {
+		req.ClusterID = "default"
+	}
+	cancelKey := clientID + ":subjtail:" + req.ClusterID + ":" + req.Subject
 	h.cancelsMu.Lock()
 	if cancel, ok := h.cancels[cancelKey]; ok {
 		cancel()
@@ -207,10 +281,7 @@ func (h *handler) handleReplayStop(clientID string, payload json.RawMessage) {
 	h.cancelsMu.Unlock()
 }
 
-func (h *handler) handleMetricsWatch(_ string, _ json.RawMessage) {
-	// Client subscribes to metrics for a specific cluster; handled by topic subscription.
-	// The aggregator already broadcasts metrics.throughput to all clients.
-}
+func (h *handler) handleMetricsWatch(_ string, _ json.RawMessage) {}
 
 // ── Discovery ─────────────────────────────────────────────────────────────────
 
@@ -235,7 +306,6 @@ func (h *handler) connectProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "url is required")
 		return
 	}
-	// Generate ID if caller didn't provide one
 	if profile.ID == "" {
 		profile.ID = xid.New().String()
 	}
@@ -387,6 +457,89 @@ func (h *handler) getConsumer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, ci)
+}
+
+func (h *handler) createConsumer(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	stream := chi.URLParam(r, "stream")
+	var cfg types.ConsumerConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	ci, err := h.inspector.CreateConsumer(r.Context(), id, stream, cfg)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, ci)
+}
+
+func (h *handler) deleteConsumer(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	stream := chi.URLParam(r, "stream")
+	consumer := chi.URLParam(r, "consumer")
+	if err := h.inspector.DeleteConsumer(r.Context(), id, stream, consumer); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Messages ──────────────────────────────────────────────────────────────────
+
+// listMessages fetches stored messages from a stream.
+// Query params: startSeq (uint64), limit (int, max 200), subject (string filter)
+func (h *handler) listMessages(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	stream := chi.URLParam(r, "stream")
+	q := r.URL.Query()
+
+	var startSeq uint64
+	if s := q.Get("startSeq"); s != "" {
+		if v, err := strconv.ParseUint(s, 10, 64); err == nil {
+			startSeq = v
+		}
+	}
+
+	limit := 50
+	if l := q.Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 {
+			limit = v
+		}
+	}
+
+	subjectFilter := q.Get("subject")
+
+	msgs, err := h.inspector.FetchMessages(r.Context(), id, stream, startSeq, limit, subjectFilter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if msgs == nil {
+		msgs = []types.StoredMessage{}
+	}
+	writeJSON(w, http.StatusOK, msgs)
+}
+
+// publish sends a message to a NATS subject.
+func (h *handler) publish(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req types.PublishRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Subject == "" {
+		writeError(w, http.StatusBadRequest, "subject is required")
+		return
+	}
+	result, err := h.inspector.Publish(r.Context(), id, req)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // ── Metrics ───────────────────────────────────────────────────────────────────

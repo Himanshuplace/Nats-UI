@@ -58,12 +58,14 @@ const (
 
 // Command types from client
 const (
-	CmdSubscribe    = "subscribe"
-	CmdUnsubscribe  = "unsubscribe"
-	CmdTailStart    = "tail.start"
-	CmdTailStop     = "tail.stop"
-	CmdReplayStart  = "replay.start"
-	CmdReplayStop   = "replay.stop"
-	CmdMetricsWatch = "metrics.watch"
-	CmdPing         = "ping"
+	CmdSubscribe        = "subscribe"
+	CmdUnsubscribe      = "unsubscribe"
+	CmdTailStart        = "tail.start"
+	CmdTailStop         = "tail.stop"
+	CmdSubjectTailStart = "tail.subject.start" // raw NATS subscribe (no stream binding)
+	CmdSubjectTailStop  = "tail.subject.stop"
+	CmdReplayStart      = "replay.start"
+	CmdReplayStop       = "replay.stop"
+	CmdMetricsWatch     = "metrics.watch"
+	CmdPing             = "ping"
 )

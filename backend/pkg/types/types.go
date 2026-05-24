@@ -185,17 +185,47 @@ type ConsumerInfo struct {
 // ── Messages ──────────────────────────────────────────────────────────────────
 
 type TailedMessage struct {
-	ClusterID   string            `json:"clusterId"`
+	ClusterID     string            `json:"clusterId"`
+	Stream        string            `json:"stream"`
+	Subject       string            `json:"subject"`
+	SubjectFilter string            `json:"subjectFilter,omitempty"` // set for raw-NATS subject tails
+	Seq           uint64            `json:"seq"`
+	Timestamp     time.Time         `json:"timestamp"`
+	Payload       string            `json:"payload"`       // base64 for binary
+	PayloadText   string            `json:"payloadText"`   // if valid UTF-8
+	PayloadSize   int               `json:"payloadSize"`
+	Headers       map[string]string `json:"headers,omitempty"`
+	Redelivered   bool              `json:"redelivered"`
+	ReplyTo       string            `json:"replyTo,omitempty"`
+}
+
+// StoredMessage — a message fetched directly from the JetStream key-value store by seq.
+type StoredMessage struct {
 	Stream      string            `json:"stream"`
+	ClusterID   string            `json:"clusterId"`
 	Subject     string            `json:"subject"`
 	Seq         uint64            `json:"seq"`
 	Timestamp   time.Time         `json:"timestamp"`
-	Payload     string            `json:"payload"`       // base64 for binary
-	PayloadText string            `json:"payloadText"`   // if valid UTF-8
+	Payload     string            `json:"payload"`
+	PayloadText string            `json:"payloadText"`
 	PayloadSize int               `json:"payloadSize"`
 	Headers     map[string]string `json:"headers,omitempty"`
-	Redelivered bool              `json:"redelivered"`
-	ReplyTo     string            `json:"replyTo,omitempty"`
+}
+
+// PublishRequest — body for POST /clusters/{id}/publish.
+type PublishRequest struct {
+	Subject string            `json:"subject"`
+	Payload string            `json:"payload"`
+	Headers map[string]string `json:"headers,omitempty"`
+	ReplyTo string            `json:"replyTo,omitempty"`
+}
+
+// PublishResult — response from POST /clusters/{id}/publish.
+type PublishResult struct {
+	Subject  string `json:"subject"`
+	Stream   string `json:"stream,omitempty"`
+	Seq      uint64 `json:"seq,omitempty"`
+	Accepted bool   `json:"accepted"`
 }
 
 // ── Metrics ───────────────────────────────────────────────────────────────────

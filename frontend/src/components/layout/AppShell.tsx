@@ -5,13 +5,15 @@ import { CommandPalette } from './CommandPalette'
 import { useUIStore } from '@/store'
 import { Spinner } from '@/components/ui'
 
-const ClusterTopology  = lazy(() => import('@/components/cluster/ClusterTopology').then(m => ({ default: m.ClusterTopology })))
-const StreamExplorer   = lazy(() => import('@/components/streams/StreamExplorer').then(m => ({ default: m.StreamExplorer })))
-const ConsumerInspector= lazy(() => import('@/components/consumers/ConsumerInspector').then(m => ({ default: m.ConsumerInspector })))
-const MessageTail      = lazy(() => import('@/components/tail/MessageTail').then(m => ({ default: m.MessageTail })))
-const ReplayStudio     = lazy(() => import('@/components/replay/ReplayStudio').then(m => ({ default: m.ReplayStudio })))
-const MetricsDashboard = lazy(() => import('@/components/metrics/MetricsDashboard').then(m => ({ default: m.MetricsDashboard })))
-const AccountsView     = lazy(() => import('@/components/accounts/AccountsView').then(m => ({ default: m.AccountsView })))
+const ClusterTopology   = lazy(() => import('@/components/cluster/ClusterTopology').then(m => ({ default: m.ClusterTopology })))
+const StreamExplorer    = lazy(() => import('@/components/streams/StreamExplorer').then(m => ({ default: m.StreamExplorer })))
+const ConsumerInspector = lazy(() => import('@/components/consumers/ConsumerInspector').then(m => ({ default: m.ConsumerInspector })))
+const MessageTail       = lazy(() => import('@/components/tail/MessageTail').then(m => ({ default: m.MessageTail })))
+const MessageBrowser    = lazy(() => import('@/components/tail/MessageBrowser').then(m => ({ default: m.MessageBrowser })))
+const MessagePublisher  = lazy(() => import('@/components/publisher/MessagePublisher').then(m => ({ default: m.MessagePublisher })))
+const ReplayStudio      = lazy(() => import('@/components/replay/ReplayStudio').then(m => ({ default: m.ReplayStudio })))
+const MetricsDashboard  = lazy(() => import('@/components/metrics/MetricsDashboard').then(m => ({ default: m.MetricsDashboard })))
+const AccountsView      = lazy(() => import('@/components/accounts/AccountsView').then(m => ({ default: m.AccountsView })))
 
 function ViewFallback() {
   return (
@@ -215,6 +217,8 @@ export function AppShell() {
       case 'streams':   return <Suspense fallback={<ViewFallback />}><StreamExplorer /></Suspense>
       case 'consumers': return <Suspense fallback={<ViewFallback />}><ConsumerInspector /></Suspense>
       case 'tail':      return <Suspense fallback={<ViewFallback />}><MessageTail /></Suspense>
+      case 'browser':   return <Suspense fallback={<ViewFallback />}><MessageBrowser /></Suspense>
+      case 'publisher': return <Suspense fallback={<ViewFallback />}><MessagePublisher /></Suspense>
       case 'replay':    return <Suspense fallback={<ViewFallback />}><ReplayStudio /></Suspense>
       case 'metrics':   return <Suspense fallback={<ViewFallback />}><MetricsDashboard /></Suspense>
       case 'accounts':  return <Suspense fallback={<ViewFallback />}><AccountsView /></Suspense>

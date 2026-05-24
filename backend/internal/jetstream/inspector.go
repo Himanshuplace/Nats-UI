@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	natsgo "github.com/nats-io/nats.go"
@@ -21,7 +22,8 @@ func NewInspector(pool *natsmgr.Pool) *Inspector {
 	return &Inspector{pool: pool}
 }
 
-// ListStreams returns all streams on the given cluster connection.
+// ── Streams ───────────────────────────────────────────────────────────────────
+
 func (ins *Inspector) ListStreams(ctx context.Context, clusterID string) ([]types.StreamInfo, error) {
 	mc, ok := ins.pool.Get(clusterID)
 	if !ok {
@@ -33,38 +35,12 @@ func (ins *Inspector) ListStreams(ctx context.Context, clusterID string) ([]type
 
 	var streams []types.StreamInfo
 	for info := range mc.JS.StreamsInfo(natsgo.Context(ctx)) {
-		si := types.StreamInfo{
-			ClusterID: clusterID,
-			Created:   info.Created,
-			Config: types.StreamConfig{
-				Name:        info.Config.Name,
-				Description: info.Config.Description,
-				Subjects:    info.Config.Subjects,
-				Replicas:    info.Config.Replicas,
-				MaxAge:      info.Config.MaxAge,
-				MaxBytes:    info.Config.MaxBytes,
-				MaxMsgs:     info.Config.MaxMsgs,
-				MaxMsgSize:  info.Config.MaxMsgSize,
-			},
-			State: types.StreamState{
-				Messages:    info.State.Msgs,
-				Bytes:       info.State.Bytes,
-				FirstSeq:    info.State.FirstSeq,
-				FirstTime:   info.State.FirstTime,
-				LastSeq:     info.State.LastSeq,
-				LastTime:    info.State.LastTime,
-				NumSubjects: int(info.State.NumSubjects),
-				NumDeleted:  uint64(info.State.NumDeleted),
-			},
-		}
-		si.Health = streamHealth(si)
+		si := buildStreamInfo(clusterID, info)
 		streams = append(streams, si)
 	}
-
 	return streams, nil
 }
 
-// GetStream returns info for a single stream.
 func (ins *Inspector) GetStream(ctx context.Context, clusterID, name string) (*types.StreamInfo, error) {
 	mc, ok := ins.pool.Get(clusterID)
 	if !ok {
@@ -78,8 +54,12 @@ func (ins *Inspector) GetStream(ctx context.Context, clusterID, name string) (*t
 	if err != nil {
 		return nil, fmt.Errorf("stream info %s: %w", name, err)
 	}
+	si := buildStreamInfo(clusterID, info)
+	return &si, nil
+}
 
-	si := &types.StreamInfo{
+func buildStreamInfo(clusterID string, info *natsgo.StreamInfo) types.StreamInfo {
+	si := types.StreamInfo{
 		ClusterID: clusterID,
 		Created:   info.Created,
 		Config: types.StreamConfig{
@@ -91,6 +71,11 @@ func (ins *Inspector) GetStream(ctx context.Context, clusterID, name string) (*t
 			MaxBytes:    info.Config.MaxBytes,
 			MaxMsgs:     info.Config.MaxMsgs,
 			MaxMsgSize:  info.Config.MaxMsgSize,
+			Retention:   mapRetentionPolicy(info.Config.Retention),
+			Storage:     mapStorageType(info.Config.Storage),
+			Discard:     mapDiscardPolicy(info.Config.Discard),
+			Duplicates:  info.Config.Duplicates,
+			NoAck:       info.Config.NoAck,
 		},
 		State: types.StreamState{
 			Messages:    info.State.Msgs,
@@ -103,11 +88,92 @@ func (ins *Inspector) GetStream(ctx context.Context, clusterID, name string) (*t
 			NumDeleted:  uint64(info.State.NumDeleted),
 		},
 	}
-	si.Health = streamHealth(*si)
-	return si, nil
+	si.Health = streamHealth(si)
+	return si
 }
 
-// ListConsumers returns all consumers for a stream.
+func (ins *Inspector) CreateStream(ctx context.Context, clusterID string, cfg types.StreamConfig) (*types.StreamInfo, error) {
+	mc, ok := ins.pool.Get(clusterID)
+	if !ok {
+		return nil, fmt.Errorf("cluster %s not connected", clusterID)
+	}
+	if !mc.IsJetStream() {
+		return nil, fmt.Errorf("jetstream not available on cluster %s", clusterID)
+	}
+	info, err := mc.JS.AddStream(streamConfigToJS(cfg), natsgo.Context(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("create stream %s: %w", cfg.Name, err)
+	}
+	si := buildStreamInfo(clusterID, info)
+	return &si, nil
+}
+
+func (ins *Inspector) UpdateStream(ctx context.Context, clusterID string, cfg types.StreamConfig) (*types.StreamInfo, error) {
+	mc, ok := ins.pool.Get(clusterID)
+	if !ok {
+		return nil, fmt.Errorf("cluster %s not connected", clusterID)
+	}
+	if !mc.IsJetStream() {
+		return nil, fmt.Errorf("jetstream not available on cluster %s", clusterID)
+	}
+	info, err := mc.JS.UpdateStream(streamConfigToJS(cfg), natsgo.Context(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("update stream %s: %w", cfg.Name, err)
+	}
+	si := buildStreamInfo(clusterID, info)
+	return &si, nil
+}
+
+func (ins *Inspector) DeleteStream(ctx context.Context, clusterID, name string) error {
+	mc, ok := ins.pool.Get(clusterID)
+	if !ok {
+		return fmt.Errorf("cluster %s not connected", clusterID)
+	}
+	if !mc.IsJetStream() {
+		return fmt.Errorf("jetstream not available")
+	}
+	return mc.JS.DeleteStream(name, natsgo.Context(ctx))
+}
+
+// streamConfigToJS converts our StreamConfig to nats.go StreamConfig.
+func streamConfigToJS(cfg types.StreamConfig) *natsgo.StreamConfig {
+	jsCfg := &natsgo.StreamConfig{
+		Name:        cfg.Name,
+		Description: cfg.Description,
+		Subjects:    cfg.Subjects,
+		Replicas:    cfg.Replicas,
+		MaxAge:      cfg.MaxAge,
+		MaxBytes:    cfg.MaxBytes,
+		MaxMsgs:     cfg.MaxMsgs,
+		MaxMsgSize:  cfg.MaxMsgSize,
+		NoAck:       cfg.NoAck,
+		Duplicates:  cfg.Duplicates,
+	}
+	switch cfg.Retention {
+	case types.RetentionInterest:
+		jsCfg.Retention = natsgo.InterestPolicy
+	case types.RetentionWorkQueue:
+		jsCfg.Retention = natsgo.WorkQueuePolicy
+	default:
+		jsCfg.Retention = natsgo.LimitsPolicy
+	}
+	switch cfg.Storage {
+	case types.StorageMemory:
+		jsCfg.Storage = natsgo.MemoryStorage
+	default:
+		jsCfg.Storage = natsgo.FileStorage
+	}
+	switch cfg.Discard {
+	case types.DiscardNew:
+		jsCfg.Discard = natsgo.DiscardNew
+	default:
+		jsCfg.Discard = natsgo.DiscardOld
+	}
+	return jsCfg
+}
+
+// ── Consumers ─────────────────────────────────────────────────────────────────
+
 func (ins *Inspector) ListConsumers(ctx context.Context, clusterID, stream string) ([]types.ConsumerInfo, error) {
 	mc, ok := ins.pool.Get(clusterID)
 	if !ok {
@@ -119,98 +185,12 @@ func (ins *Inspector) ListConsumers(ctx context.Context, clusterID, stream strin
 
 	var consumers []types.ConsumerInfo
 	for info := range mc.JS.ConsumersInfo(stream, natsgo.Context(ctx)) {
-		ci := types.ConsumerInfo{
-			Stream:    stream,
-			Name:      info.Name,
-			Created:   info.Created,
-			ClusterID: clusterID,
-			Config: types.ConsumerConfig{
-				Name:          info.Config.Name,
-				DurableName:   info.Config.Durable,
-				Description:   info.Config.Description,
-				FilterSubject: info.Config.FilterSubject,
-				MaxDeliver:    info.Config.MaxDeliver,
-				MaxAckPending: info.Config.MaxAckPending,
-			},
-			Delivered: types.ConsumerSequenceInfo{
-				ConsumerSeq: info.Delivered.Consumer,
-				StreamSeq:   info.Delivered.Stream,
-			},
-			AckFloor: types.ConsumerSequenceInfo{
-				ConsumerSeq: info.AckFloor.Consumer,
-				StreamSeq:   info.AckFloor.Stream,
-			},
-			NumAckPending:  info.NumAckPending,
-			NumRedelivered: info.NumRedelivered,
-			NumWaiting:     info.NumWaiting,
-			NumPending:     info.NumPending,
-			Lag:            info.NumPending,
-		}
-		ci.Health = consumerHealth(ci)
+		ci := buildConsumerInfo(clusterID, stream, info)
 		consumers = append(consumers, ci)
 	}
-
 	return consumers, nil
 }
 
-// TailStream starts tailing messages from a stream and sends them to the callback.
-// It runs until ctx is cancelled. Uses an ephemeral consumer (no Durable) so
-// NATS auto-cleans it up when the subscription is closed.
-func (ins *Inspector) TailStream(ctx context.Context, clusterID, stream string, fn func(types.TailedMessage)) error {
-	mc, ok := ins.pool.Get(clusterID)
-	if !ok {
-		return fmt.Errorf("cluster %s not connected", clusterID)
-	}
-	if !mc.IsJetStream() {
-		return fmt.Errorf("jetstream not available")
-	}
-
-	sub, err := mc.JS.Subscribe(">", func(msg *natsgo.Msg) {
-		meta, _ := msg.Metadata()
-
-		payload := string(msg.Data)
-		headers := make(map[string]string)
-		for k, vals := range msg.Header {
-			if len(vals) > 0 {
-				headers[k] = vals[0]
-			}
-		}
-
-		tm := types.TailedMessage{
-			ClusterID:   clusterID,
-			Stream:      stream,
-			Subject:     msg.Subject,
-			PayloadText: payload,
-			Payload:     payload,
-			PayloadSize: len(msg.Data),
-			Headers:     headers,
-			ReplyTo:     msg.Reply,
-		}
-		if meta != nil {
-			tm.Seq = meta.Sequence.Stream
-			tm.Timestamp = meta.Timestamp
-			tm.Redelivered = meta.NumDelivered > 1
-		}
-
-		fn(tm)
-	},
-		natsgo.BindStream(stream),
-		natsgo.DeliverNew(),
-		natsgo.AckNone(),
-		natsgo.Context(ctx),
-	)
-	if err != nil {
-		return fmt.Errorf("subscribe tail: %w", err)
-	}
-
-	<-ctx.Done()
-
-	sub.Unsubscribe()
-	slog.Info("tail stopped", "stream", stream, "cluster", clusterID)
-	return nil
-}
-
-// GetConsumer returns info for a single consumer.
 func (ins *Inspector) GetConsumer(ctx context.Context, clusterID, stream, name string) (*types.ConsumerInfo, error) {
 	mc, ok := ins.pool.Get(clusterID)
 	if !ok {
@@ -223,18 +203,109 @@ func (ins *Inspector) GetConsumer(ctx context.Context, clusterID, stream, name s
 	if err != nil {
 		return nil, fmt.Errorf("consumer info %s/%s: %w", stream, name, err)
 	}
-	ci := &types.ConsumerInfo{
+	ci := buildConsumerInfo(clusterID, stream, info)
+	return &ci, nil
+}
+
+func (ins *Inspector) CreateConsumer(ctx context.Context, clusterID, stream string, cfg types.ConsumerConfig) (*types.ConsumerInfo, error) {
+	mc, ok := ins.pool.Get(clusterID)
+	if !ok {
+		return nil, fmt.Errorf("cluster %s not connected", clusterID)
+	}
+	if !mc.IsJetStream() {
+		return nil, fmt.Errorf("jetstream not available")
+	}
+
+	jsCfg := &natsgo.ConsumerConfig{
+		Name:           cfg.Name,
+		Durable:        cfg.DurableName,
+		Description:    cfg.Description,
+		FilterSubject:  cfg.FilterSubject,
+		DeliverSubject: cfg.DeliverSubject,
+		DeliverGroup:   cfg.DeliverGroup,
+		MaxDeliver:     cfg.MaxDeliver,
+		MaxAckPending:  cfg.MaxAckPending,
+		AckWait:        cfg.AckWait,
+		OptStartSeq:    cfg.OptStartSeq,
+		OptStartTime:   cfg.OptStartTime,
+	}
+
+	switch cfg.DeliverPolicy {
+	case types.DeliverAll:
+		jsCfg.DeliverPolicy = natsgo.DeliverAllPolicy
+	case types.DeliverLast:
+		jsCfg.DeliverPolicy = natsgo.DeliverLastPolicy
+	case types.DeliverNew:
+		jsCfg.DeliverPolicy = natsgo.DeliverNewPolicy
+	case types.DeliverBySeq:
+		jsCfg.DeliverPolicy = natsgo.DeliverByStartSequencePolicy
+	case types.DeliverByTime:
+		jsCfg.DeliverPolicy = natsgo.DeliverByStartTimePolicy
+	default:
+		jsCfg.DeliverPolicy = natsgo.DeliverAllPolicy
+	}
+
+	switch cfg.AckPolicy {
+	case types.AckNone:
+		jsCfg.AckPolicy = natsgo.AckNonePolicy
+	case types.AckAll:
+		jsCfg.AckPolicy = natsgo.AckAllPolicy
+	default:
+		jsCfg.AckPolicy = natsgo.AckExplicitPolicy
+	}
+
+	switch cfg.ReplayPolicy {
+	case types.ReplayOriginal:
+		jsCfg.ReplayPolicy = natsgo.ReplayOriginalPolicy
+	default:
+		jsCfg.ReplayPolicy = natsgo.ReplayInstantPolicy
+	}
+
+	info, err := mc.JS.AddConsumer(stream, jsCfg, natsgo.Context(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("add consumer: %w", err)
+	}
+	ci := buildConsumerInfo(clusterID, stream, info)
+	return &ci, nil
+}
+
+func (ins *Inspector) DeleteConsumer(ctx context.Context, clusterID, stream, name string) error {
+	mc, ok := ins.pool.Get(clusterID)
+	if !ok {
+		return fmt.Errorf("cluster %s not connected", clusterID)
+	}
+	if !mc.IsJetStream() {
+		return fmt.Errorf("jetstream not available")
+	}
+	return mc.JS.DeleteConsumer(stream, name, natsgo.Context(ctx))
+}
+
+func buildConsumerInfo(clusterID, stream string, info *natsgo.ConsumerInfo) types.ConsumerInfo {
+	var optStartTime *time.Time
+	if info.Config.OptStartTime != nil && !info.Config.OptStartTime.IsZero() {
+		t := *info.Config.OptStartTime
+		optStartTime = &t
+	}
+	ci := types.ConsumerInfo{
 		Stream:    stream,
 		Name:      info.Name,
 		Created:   info.Created,
 		ClusterID: clusterID,
 		Config: types.ConsumerConfig{
-			Name:          info.Config.Name,
-			DurableName:   info.Config.Durable,
-			Description:   info.Config.Description,
-			FilterSubject: info.Config.FilterSubject,
-			MaxDeliver:    info.Config.MaxDeliver,
-			MaxAckPending: info.Config.MaxAckPending,
+			Name:           info.Config.Name,
+			DurableName:    info.Config.Durable,
+			Description:    info.Config.Description,
+			DeliverSubject: info.Config.DeliverSubject,
+			DeliverGroup:   info.Config.DeliverGroup,
+			FilterSubject:  info.Config.FilterSubject,
+			MaxDeliver:     info.Config.MaxDeliver,
+			MaxAckPending:  info.Config.MaxAckPending,
+			AckWait:        info.Config.AckWait,
+			OptStartSeq:    info.Config.OptStartSeq,
+			OptStartTime:   optStartTime,
+			DeliverPolicy:  mapDeliverPolicy(info.Config.DeliverPolicy),
+			AckPolicy:      mapAckPolicy(info.Config.AckPolicy),
+			ReplayPolicy:   mapReplayPolicy(info.Config.ReplayPolicy),
 		},
 		Delivered: types.ConsumerSequenceInfo{
 			ConsumerSeq: info.Delivered.Consumer,
@@ -250,12 +321,192 @@ func (ins *Inspector) GetConsumer(ctx context.Context, clusterID, stream, name s
 		NumPending:     info.NumPending,
 		Lag:            info.NumPending,
 	}
-	ci.Health = consumerHealth(*ci)
-	return ci, nil
+	ci.Health = consumerHealth(ci)
+	return ci
 }
 
-// ReplayStream replays messages from a stream according to the replay config.
-// Calls progressFn periodically with progress updates.
+// ── Tail (stream-bound JetStream) ─────────────────────────────────────────────
+
+func (ins *Inspector) TailStream(ctx context.Context, clusterID, stream string, fn func(types.TailedMessage)) error {
+	mc, ok := ins.pool.Get(clusterID)
+	if !ok {
+		return fmt.Errorf("cluster %s not connected", clusterID)
+	}
+	if !mc.IsJetStream() {
+		return fmt.Errorf("jetstream not available")
+	}
+
+	sub, err := mc.JS.Subscribe(">", func(msg *natsgo.Msg) {
+		meta, _ := msg.Metadata()
+		tm := types.TailedMessage{
+			ClusterID:   clusterID,
+			Stream:      stream,
+			Subject:     msg.Subject,
+			PayloadText: string(msg.Data),
+			Payload:     string(msg.Data),
+			PayloadSize: len(msg.Data),
+			Headers:     extractHeaders(msg.Header),
+			ReplyTo:     msg.Reply,
+		}
+		if meta != nil {
+			tm.Seq = meta.Sequence.Stream
+			tm.Timestamp = meta.Timestamp
+			tm.Redelivered = meta.NumDelivered > 1
+		}
+		fn(tm)
+	},
+		natsgo.BindStream(stream),
+		natsgo.DeliverNew(),
+		natsgo.AckNone(),
+		natsgo.Context(ctx),
+	)
+	if err != nil {
+		return fmt.Errorf("subscribe tail: %w", err)
+	}
+
+	<-ctx.Done()
+	sub.Unsubscribe()
+	slog.Info("stream tail stopped", "stream", stream, "cluster", clusterID)
+	return nil
+}
+
+// TailSubject starts a raw NATS subscribe on a subject pattern (no JetStream stream binding).
+// Supports standard NATS wildcards: * (single token), > (rest of subject).
+func (ins *Inspector) TailSubject(ctx context.Context, clusterID, subject string, fn func(types.TailedMessage)) error {
+	mc, ok := ins.pool.Get(clusterID)
+	if !ok {
+		return fmt.Errorf("cluster %s not connected", clusterID)
+	}
+
+	sub, err := mc.NC.Subscribe(subject, func(msg *natsgo.Msg) {
+		fn(types.TailedMessage{
+			ClusterID:     clusterID,
+			Stream:        "",
+			SubjectFilter: subject,
+			Subject:       msg.Subject,
+			Timestamp:     time.Now(),
+			PayloadText:   string(msg.Data),
+			Payload:       string(msg.Data),
+			PayloadSize:   len(msg.Data),
+			Headers:       extractHeaders(msg.Header),
+			ReplyTo:       msg.Reply,
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("subscribe subject %q: %w", subject, err)
+	}
+
+	<-ctx.Done()
+	sub.Unsubscribe()
+	slog.Info("subject tail stopped", "subject", subject, "cluster", clusterID)
+	return nil
+}
+
+// ── Message browser ───────────────────────────────────────────────────────────
+
+// FetchMessages retrieves stored messages from a JetStream stream.
+// startSeq=0 starts from the first available message.
+// limit is capped at 200. subjectFilter="" returns all subjects.
+func (ins *Inspector) FetchMessages(ctx context.Context, clusterID, stream string, startSeq uint64, limit int, subjectFilter string) ([]types.StoredMessage, error) {
+	mc, ok := ins.pool.Get(clusterID)
+	if !ok {
+		return nil, fmt.Errorf("cluster %s not connected", clusterID)
+	}
+	if !mc.IsJetStream() {
+		return nil, fmt.Errorf("jetstream not available")
+	}
+
+	si, err := mc.JS.StreamInfo(stream, natsgo.Context(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("stream info: %w", err)
+	}
+
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	if startSeq == 0 || startSeq < si.State.FirstSeq {
+		startSeq = si.State.FirstSeq
+	}
+
+	var out []types.StoredMessage
+	for seq := startSeq; seq <= si.State.LastSeq && len(out) < limit; seq++ {
+		select {
+		case <-ctx.Done():
+			return out, nil
+		default:
+		}
+
+		raw, err := mc.JS.GetMsg(stream, seq)
+		if err != nil {
+			continue // deleted / compacted gap — skip
+		}
+
+		if subjectFilter != "" && !natsMatch(subjectFilter, raw.Subject) {
+			continue
+		}
+
+		headers := make(map[string]string)
+		for k, vals := range raw.Header {
+			if len(vals) > 0 {
+				headers[k] = vals[0]
+			}
+		}
+
+		payload := string(raw.Data)
+		out = append(out, types.StoredMessage{
+			Stream:      stream,
+			ClusterID:   clusterID,
+			Subject:     raw.Subject,
+			Seq:         raw.Sequence,
+			Timestamp:   raw.Time,
+			Payload:     payload,
+			PayloadText: payload,
+			PayloadSize: len(raw.Data),
+			Headers:     headers,
+		})
+	}
+	return out, nil
+}
+
+// ── Publisher ─────────────────────────────────────────────────────────────────
+
+// Publish sends a message to a subject. Prefers JetStream publish (returns stream+seq);
+// falls back to core NATS publish when the subject is not captured by any stream.
+func (ins *Inspector) Publish(ctx context.Context, clusterID string, req types.PublishRequest) (*types.PublishResult, error) {
+	mc, ok := ins.pool.Get(clusterID)
+	if !ok {
+		return nil, fmt.Errorf("cluster %s not connected", clusterID)
+	}
+
+	msg := natsgo.NewMsg(req.Subject)
+	msg.Data = []byte(req.Payload)
+	if req.ReplyTo != "" {
+		msg.Reply = req.ReplyTo
+	}
+	for k, v := range req.Headers {
+		msg.Header.Set(k, v)
+	}
+
+	if mc.IsJetStream() {
+		if ack, err := mc.JS.PublishMsg(msg, natsgo.Context(ctx)); err == nil {
+			return &types.PublishResult{
+				Subject:  req.Subject,
+				Stream:   ack.Stream,
+				Seq:      ack.Sequence,
+				Accepted: true,
+			}, nil
+		}
+		// No stream captured this subject — send as core NATS
+	}
+
+	if err := mc.NC.PublishMsg(msg); err != nil {
+		return nil, fmt.Errorf("publish %q: %w", req.Subject, err)
+	}
+	return &types.PublishResult{Subject: req.Subject, Accepted: true}, nil
+}
+
+// ── Replay ────────────────────────────────────────────────────────────────────
+
 func (ins *Inspector) ReplayStream(ctx context.Context, cfg types.ReplayConfig, progressFn func(types.ReplayProgress)) error {
 	mc, ok := ins.pool.Get(cfg.ClusterID)
 	if !ok {
@@ -285,7 +536,6 @@ func (ins *Inspector) ReplayStream(ctx context.Context, cfg types.ReplayConfig, 
 	var err error
 	sub, err = mc.JS.Subscribe(">", func(msg *natsgo.Msg) {
 		meta, _ := msg.Metadata()
-
 		processed++
 		var seq uint64
 		if meta != nil {
@@ -304,12 +554,10 @@ func (ins *Inspector) ReplayStream(ctx context.Context, cfg types.ReplayConfig, 
 		}
 		progressFn(progress)
 
-		// Apply throttle
 		if cfg.ThrottleMs > 0 {
 			time.Sleep(time.Duration(cfg.ThrottleMs) * time.Millisecond)
 		}
 
-		// Stop at end seq
 		if cfg.EndSeq != nil && seq >= *cfg.EndSeq {
 			sub.Unsubscribe()
 			progressFn(types.ReplayProgress{
@@ -329,8 +577,73 @@ func (ins *Inspector) ReplayStream(ctx context.Context, cfg types.ReplayConfig, 
 	return nil
 }
 
+// ── Policy mappers ────────────────────────────────────────────────────────────
+
+func mapAckPolicy(p natsgo.AckPolicy) types.AckPolicy {
+	switch p {
+	case natsgo.AckNonePolicy:
+		return types.AckNone
+	case natsgo.AckAllPolicy:
+		return types.AckAll
+	default:
+		return types.AckExplicit
+	}
+}
+
+func mapDeliverPolicy(p natsgo.DeliverPolicy) types.DeliverPolicy {
+	switch p {
+	case natsgo.DeliverLastPolicy:
+		return types.DeliverLast
+	case natsgo.DeliverNewPolicy:
+		return types.DeliverNew
+	case natsgo.DeliverByStartSequencePolicy:
+		return types.DeliverBySeq
+	case natsgo.DeliverByStartTimePolicy:
+		return types.DeliverByTime
+	default:
+		return types.DeliverAll
+	}
+}
+
+func mapReplayPolicy(p natsgo.ReplayPolicy) types.ReplayPolicy {
+	switch p {
+	case natsgo.ReplayOriginalPolicy:
+		return types.ReplayOriginal
+	default:
+		return types.ReplayInstant
+	}
+}
+
+// ── NATS subject matching ─────────────────────────────────────────────────────
+
+// natsMatch returns true when pattern matches subject using NATS wildcard rules:
+// '*' matches exactly one token, '>' matches one or more tokens at the end.
+func natsMatch(pattern, subject string) bool {
+	if pattern == "" {
+		return true
+	}
+	return matchParts(strings.Split(pattern, "."), strings.Split(subject, "."))
+}
+
+func matchParts(pp, sp []string) bool {
+	if len(pp) == 0 {
+		return len(sp) == 0
+	}
+	if pp[0] == ">" {
+		return len(sp) > 0
+	}
+	if len(sp) == 0 {
+		return false
+	}
+	if pp[0] != "*" && pp[0] != sp[0] {
+		return false
+	}
+	return matchParts(pp[1:], sp[1:])
+}
+
+// ── Health heuristics ─────────────────────────────────────────────────────────
+
 func streamHealth(s types.StreamInfo) string {
-	// Heuristic: if lost messages is high relative to total, flag it
 	if s.State.NumDeleted > 0 && s.State.Messages > 0 {
 		ratio := float64(s.State.NumDeleted) / float64(s.State.Messages+s.State.NumDeleted)
 		if ratio > 0.1 {
@@ -351,4 +664,48 @@ func consumerHealth(c types.ConsumerInfo) string {
 		return "lagging"
 	}
 	return "ok"
+}
+
+func mapRetentionPolicy(p natsgo.RetentionPolicy) types.RetentionPolicy {
+	switch p {
+	case natsgo.InterestPolicy:
+		return types.RetentionInterest
+	case natsgo.WorkQueuePolicy:
+		return types.RetentionWorkQueue
+	default:
+		return types.RetentionLimits
+	}
+}
+
+func mapStorageType(s natsgo.StorageType) types.StorageType {
+	switch s {
+	case natsgo.MemoryStorage:
+		return types.StorageMemory
+	default:
+		return types.StorageFile
+	}
+}
+
+func mapDiscardPolicy(d natsgo.DiscardPolicy) types.DiscardPolicy {
+	switch d {
+	case natsgo.DiscardNew:
+		return types.DiscardNew
+	default:
+		return types.DiscardOld
+	}
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+func extractHeaders(h natsgo.Header) map[string]string {
+	if len(h) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(h))
+	for k, vals := range h {
+		if len(vals) > 0 {
+			out[k] = vals[0]
+		}
+	}
+	return out
 }

@@ -1,6 +1,7 @@
 import type {
   ClusterInfo, StreamInfo, ConsumerInfo,
   ConnectionProfile, NATSServer, NATSAccount, NATSUser,
+  StoredMessage, PublishRequest, PublishResult,
 } from '@/types'
 
 const API_ROOT = import.meta.env.VITE_API_BASE ?? 'http://localhost:8080'
@@ -24,15 +25,11 @@ const get  = <T>(path: string) => req<T>('GET', path)
 const post = <T>(path: string, body: unknown) => req<T>('POST', path, body)
 const del  = <T>(path: string) => req<T>('DELETE', path)
 
-// ── Discovery ─────────────────────────────────────────────────────────────────
-
 export const api = {
   discovery: {
     scan:  () => get<NATSServer[]>('/discovery/scan'),
     known: () => get<NATSServer[]>('/discovery/known'),
   },
-
-  // ── Connections ─────────────────────────────────────────────────────────────
 
   connections: {
     list: () => get<Array<{ id: string; name: string; url: string; jetstream: boolean; status: string }>>('/connections'),
@@ -41,8 +38,6 @@ export const api = {
     remove: (id: string) => del<void>(`/connections/${id}`),
   },
 
-  // ── Cluster ──────────────────────────────────────────────────────────────────
-
   cluster: {
     topology: (id: string) => get<ClusterInfo>(`/clusters/${id}/topology`),
     health:   (id: string) => get<{ health: string; nodes: number }>(`/clusters/${id}/health`),
@@ -50,29 +45,45 @@ export const api = {
     connz:    (id: string) => get<NATSUser[]>(`/clusters/${id}/connz`),
   },
 
-  // ── Streams ──────────────────────────────────────────────────────────────────
-
   streams: {
-    list: (clusterId: string) => get<StreamInfo[]>(`/clusters/${clusterId}/streams`),
-    get:  (clusterId: string, name: string) => get<StreamInfo>(`/clusters/${clusterId}/streams/${name}`),
+    list:   (clusterId: string) => get<StreamInfo[]>(`/clusters/${clusterId}/streams`),
+    get:    (clusterId: string, name: string) => get<StreamInfo>(`/clusters/${clusterId}/streams/${name}`),
+    create: (clusterId: string, cfg: Partial<StreamInfo['config']>) =>
+      post<StreamInfo>(`/clusters/${clusterId}/streams`, cfg),
+    update: (clusterId: string, name: string, cfg: Partial<StreamInfo['config']>) =>
+      req<StreamInfo>('PUT', `/clusters/${clusterId}/streams/${name}`, cfg),
+    delete: (clusterId: string, name: string) => del<void>(`/clusters/${clusterId}/streams/${name}`),
+    messages: (clusterId: string, stream: string, opts?: {
+      startSeq?: number
+      limit?: number
+      subject?: string
+    }) => {
+      const p = new URLSearchParams()
+      if (opts?.startSeq) p.set('startSeq', String(opts.startSeq))
+      if (opts?.limit)    p.set('limit',    String(opts.limit))
+      if (opts?.subject)  p.set('subject',  opts.subject)
+      const qs = p.toString() ? `?${p}` : ''
+      return get<StoredMessage[]>(`/clusters/${clusterId}/streams/${stream}/messages${qs}`)
+    },
   },
-
-  // ── Consumers ────────────────────────────────────────────────────────────────
 
   consumers: {
-    list: (clusterId: string, stream: string) =>
+    list:   (clusterId: string, stream: string) =>
       get<ConsumerInfo[]>(`/clusters/${clusterId}/streams/${stream}/consumers`),
-    get: (clusterId: string, stream: string, name: string) =>
+    get:    (clusterId: string, stream: string, name: string) =>
       get<ConsumerInfo>(`/clusters/${clusterId}/streams/${stream}/consumers/${name}`),
+    create: (clusterId: string, stream: string, cfg: unknown) =>
+      post<ConsumerInfo>(`/clusters/${clusterId}/streams/${stream}/consumers`, cfg),
+    delete: (clusterId: string, stream: string, name: string) =>
+      del<void>(`/clusters/${clusterId}/streams/${stream}/consumers/${name}`),
   },
 
-  // ── Metrics ──────────────────────────────────────────────────────────────────
+  publish: (clusterId: string, req: PublishRequest) =>
+    post<PublishResult>(`/clusters/${clusterId}/publish`, req),
 
   metrics: {
     throughput: (clusterId: string) => get<unknown>(`/clusters/${clusterId}/metrics/throughput`),
   },
-
-  // ── Health ───────────────────────────────────────────────────────────────────
 
   health: () => fetch(`${API_ROOT}/health`).then(r => r.json()),
 }

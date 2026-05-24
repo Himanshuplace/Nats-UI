@@ -2,7 +2,7 @@ import { useEffect, useCallback } from 'react'
 import { Command } from 'cmdk'
 import {
   Activity, Layers, Users, Radio, RotateCcw, BarChart2,
-  Server, Plug, Settings, Search, Zap, X, Shield,
+  Server, Plug, Settings, Search, Zap, X, Shield, DatabaseZap, Send,
 } from 'lucide-react'
 import { useUIStore } from '@/store'
 import { cn } from '@/components/ui'
@@ -15,8 +15,10 @@ const GROUPS = [
       { id: 'topology',  label: 'Cluster Topology',  icon: Server,    shortcut: ['G', 'T'], view: 'topology' as const },
       { id: 'streams',   label: 'Stream Explorer',   icon: Layers,    shortcut: ['G', 'S'], view: 'streams' as const },
       { id: 'consumers', label: 'Consumer Inspector',icon: Users,     shortcut: ['G', 'C'], view: 'consumers' as const },
-      { id: 'tail',      label: 'Message Tail',      icon: Radio,     shortcut: ['G', 'L'], view: 'tail' as const },
-      { id: 'replay',    label: 'Replay Studio',     icon: RotateCcw, shortcut: ['G', 'R'], view: 'replay' as const },
+      { id: 'tail',      label: 'Live Tail',          icon: Radio,        shortcut: ['G', 'L'], view: 'tail'      as const },
+      { id: 'browser',   label: 'Message Browser',   icon: DatabaseZap,  shortcut: ['G', 'B'], view: 'browser'   as const },
+      { id: 'publisher', label: 'Publish Message',   icon: Send,         shortcut: ['G', 'P'], view: 'publisher' as const },
+      { id: 'replay',    label: 'Replay Studio',     icon: RotateCcw,    shortcut: ['G', 'R'], view: 'replay'    as const },
       { id: 'metrics',   label: 'Metrics Dashboard', icon: BarChart2, shortcut: ['G', 'M'], view: 'metrics' as const },
       { id: 'accounts',  label: 'Accounts & Users',  icon: Shield,    shortcut: ['G', 'A'], view: 'accounts' as const },
       { id: 'settings',  label: 'Settings',          icon: Settings,  shortcut: ['G', ','], view: 'settings' as const },

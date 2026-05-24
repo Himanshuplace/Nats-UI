@@ -145,6 +145,7 @@ export interface TailedMessage {
   id?: string  // local generated ID for rendering
   clusterId?: string
   stream: string
+  subjectFilter?: string  // set for raw-NATS subject tails
   subject: string
   seq: number
   timestamp: string
@@ -154,6 +155,32 @@ export interface TailedMessage {
   headers?: Record<string, string>
   redelivered: boolean
   replyTo?: string
+}
+
+export interface StoredMessage {
+  stream: string
+  clusterId: string
+  subject: string
+  seq: number
+  timestamp: string
+  payload: string
+  payloadText: string
+  payloadSize: number
+  headers?: Record<string, string>
+}
+
+export interface PublishRequest {
+  subject: string
+  payload: string
+  headers?: Record<string, string>
+  replyTo?: string
+}
+
+export interface PublishResult {
+  subject: string
+  stream?: string
+  seq?: number
+  accepted: boolean
 }
 
 // ── Metrics ───────────────────────────────────────────────────────────────────
@@ -265,6 +292,8 @@ export type View =
   | 'streams'
   | 'consumers'
   | 'tail'
+  | 'browser'
+  | 'publisher'
   | 'replay'
   | 'metrics'
   | 'dlq'

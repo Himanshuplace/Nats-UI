@@ -1,8 +1,8 @@
 import { useCallback } from 'react'
 import {
   Activity, Server, Layers, Users, Radio, RotateCcw,
-  BarChart2, AlertTriangle, Settings, ChevronLeft, Plus, Wifi, WifiOff,
-  Shield,
+  BarChart2, AlertTriangle, Settings, ChevronLeft, ChevronRight, Plus, Wifi, WifiOff,
+  Shield, DatabaseZap, Send,
 } from 'lucide-react'
 import { useUIStore, useDataStore } from '@/store'
 import { api } from '@/lib/api'
@@ -17,15 +17,17 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'overview',  label: 'Overview',        icon: Activity,       shortcut: 'O' },
-  { id: 'topology',  label: 'Topology',        icon: Server,         shortcut: 'T' },
-  { id: 'streams',   label: 'Streams',         icon: Layers,         shortcut: 'S' },
-  { id: 'consumers', label: 'Consumers',       icon: Users,          shortcut: 'C' },
-  { id: 'tail',      label: 'Message Tail',    icon: Radio,          shortcut: 'L' },
-  { id: 'replay',    label: 'Replay Studio',   icon: RotateCcw,      shortcut: 'R' },
-  { id: 'metrics',   label: 'Metrics',         icon: BarChart2,      shortcut: 'M' },
-  { id: 'accounts',  label: 'Accounts',        icon: Shield,         shortcut: 'A' },
-  { id: 'dlq',       label: 'Dead Letters',    icon: AlertTriangle,  shortcut: 'D' },
+  { id: 'overview',   label: 'Overview',          icon: Activity,       shortcut: 'O' },
+  { id: 'topology',   label: 'Topology',          icon: Server,         shortcut: 'T' },
+  { id: 'streams',    label: 'Streams',           icon: Layers,         shortcut: 'S' },
+  { id: 'consumers',  label: 'Consumers',         icon: Users,          shortcut: 'C' },
+  { id: 'tail',       label: 'Live Tail',         icon: Radio,          shortcut: 'L' },
+  { id: 'browser',    label: 'Message Browser',   icon: DatabaseZap,    shortcut: 'B' },
+  { id: 'publisher',  label: 'Publish',           icon: Send,           shortcut: 'P' },
+  { id: 'replay',     label: 'Replay Studio',     icon: RotateCcw,      shortcut: 'R' },
+  { id: 'metrics',    label: 'Metrics',           icon: BarChart2,      shortcut: 'M' },
+  { id: 'accounts',   label: 'Accounts',          icon: Shield,         shortcut: 'A' },
+  { id: 'dlq',        label: 'Dead Letters',      icon: AlertTriangle,  shortcut: 'D' },
 ]
 
 export function Sidebar() {
@@ -62,10 +64,11 @@ export function Sidebar() {
     >
       {/* Logo / header */}
       <div className={cn(
-        'flex items-center border-b border-bg-border flex-shrink-0',
-        collapsed ? 'justify-center h-12' : 'justify-between px-3 h-12',
+        'flex items-center border-b border-bg-border flex-shrink-0 h-12',
+        collapsed ? 'justify-between px-1.5' : 'justify-between px-3',
       )}>
-        {!collapsed && (
+        {/* Logo */}
+        {!collapsed ? (
           <div className="flex items-center gap-2">
             <div className="w-5 h-5 rounded bg-nats-primary flex items-center justify-center flex-shrink-0">
               <span className="text-bg-base text-2xs font-mono font-bold">N</span>
@@ -74,20 +77,23 @@ export function Sidebar() {
               NatsUI
             </span>
           </div>
-        )}
-        {collapsed && (
-          <div className="w-6 h-6 rounded bg-nats-primary flex items-center justify-center">
+        ) : (
+          <div className="w-6 h-6 rounded bg-nats-primary flex items-center justify-center flex-shrink-0">
             <span className="text-bg-base text-xs font-mono font-bold">N</span>
           </div>
         )}
-        {!collapsed && (
-          <button
-            onClick={toggleSidebar}
-            className="text-text-muted hover:text-text-secondary transition-colors"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-        )}
+
+        {/* Collapse / expand toggle */}
+        <button
+          onClick={toggleSidebar}
+          className="text-text-muted hover:text-text-secondary transition-colors p-0.5 rounded hover:bg-bg-hover"
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed
+            ? <ChevronRight className="w-4 h-4" />
+            : <ChevronLeft className="w-4 h-4" />
+          }
+        </button>
       </div>
 
       {/* Connection status */}

@@ -55,6 +55,9 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
   const tail        = mode === 'stream' ? streamTail : subjectTail
 
   const parentRef = useRef<HTMLDivElement>(null)
+  // Track previous scroll position to avoid calling scrollToIndex when the
+  // list hasn't actually grown (saves layout work on every re-render).
+  const lastScrolledLengthRef = useRef(0)
 
   const filtered = useMemo(() => {
     if (!filterText.trim()) return messages
@@ -73,10 +76,15 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
     overscan: 20,
   })
 
+  // Auto-scroll: only call scrollToIndex when the list has actually grown
+  // and auto-scroll is on. Using a ref to track last-scrolled length avoids
+  // running this effect when only autoScroll/paused state changes.
   useEffect(() => {
-    if (autoScroll && !paused && filtered.length > 0) {
-      virtualizer.scrollToIndex(filtered.length - 1, { behavior: 'auto' })
-    }
+    if (!autoScroll || paused) return
+    const len = filtered.length
+    if (len === 0 || len === lastScrolledLengthRef.current) return
+    lastScrolledLengthRef.current = len
+    virtualizer.scrollToIndex(len - 1, { behavior: 'auto' })
   }, [filtered.length, autoScroll, paused])
 
   const handleToggle = useCallback(() => {
@@ -95,12 +103,24 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
     setMode(next)
     setFilterText('')
     setPaused(false)
+    lastScrolledLengthRef.current = 0
   }
 
-  const totalBytes = useMemo(
-    () => messages.reduce((s, m) => s + m.payloadSize, 0),
-    [messages],
-  )
+  // Accumulate totalBytes incrementally: instead of O(N) reduce on every render,
+  // track the running sum. When messages array is replaced (clear), reset to 0.
+  const totalBytesRef = useRef(0)
+  const prevMsgLenRef = useRef(0)
+  if (messages.length < prevMsgLenRef.current) {
+    // Array was cleared or replaced — recalculate from scratch
+    totalBytesRef.current = messages.reduce((s, m) => s + m.payloadSize, 0)
+  } else if (messages.length > prevMsgLenRef.current) {
+    // Messages were appended — only sum the new slice
+    for (let i = prevMsgLenRef.current; i < messages.length; i++) {
+      totalBytesRef.current += messages[i].payloadSize
+    }
+  }
+  prevMsgLenRef.current = messages.length
+  const totalBytes = totalBytesRef.current
 
   const canStart = mode === 'stream' ? Boolean(selectedStream) : Boolean(subjectPattern.trim())
 

@@ -6,6 +6,57 @@ import type { WSEventType, TailedMessage, ThroughputPoint, NATSServer, ClusterIn
 let idCounter = 0
 const nextId = () => `msg-${++idCounter}`
 
+// ── RAF-batched message queue ─────────────────────────────────────────────────
+//
+// Problem: the backend can deliver messages much faster than the browser can
+// render. Calling pushTailMessage (Zustand set) on every single WS message
+// causes O(N) array spreads + React re-renders at the WS delivery rate.
+// At 200 msgs/sec that means 200 full re-renders/second → browser freezes.
+//
+// Solution: buffer incoming messages in a plain Map (no React state), then
+// flush the entire batch once per animation frame. React re-renders at most
+// 60 fps regardless of how fast NATS publishes.
+//
+// Zustand.getState() is valid outside components, so this works as a
+// module-level singleton that any number of React trees can share.
+
+const MAX_BUFFER_PER_KEY = 2_000
+
+const pendingMessages = new Map<string, TailedMessage[]>()
+let rafHandle: number | null = null
+
+function enqueueMessage(key: string, msg: TailedMessage): void {
+  let q = pendingMessages.get(key)
+  if (!q) {
+    q = []
+    pendingMessages.set(key, q)
+  }
+  q.push(msg)
+  // Cap buffer to prevent unbounded growth when the browser tab is hidden
+  // (requestAnimationFrame pauses in background tabs).
+  if (q.length > MAX_BUFFER_PER_KEY) {
+    q.shift() // drop oldest
+  }
+  scheduleFlush()
+}
+
+function scheduleFlush(): void {
+  if (rafHandle !== null) return
+  rafHandle = requestAnimationFrame(flushPendingMessages)
+}
+
+function flushPendingMessages(): void {
+  rafHandle = null
+  if (pendingMessages.size === 0) return
+  const store = useDataStore.getState()
+  for (const [key, msgs] of pendingMessages) {
+    if (msgs.length === 0) continue
+    // splice(0) drains the queue in-place → one Zustand write per key per frame
+    store.batchPushTailMessages(key, msgs.splice(0))
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
  * Connects the WebSocket singleton to the Zustand store.
  * Call once at the app root.
@@ -16,7 +67,6 @@ export function useWebSocketBridge(): void {
   const setCluster           = useDataStore(s => s.setCluster)
   const setStreams            = useDataStore(s => s.setStreams)
   const pushThroughput       = useDataStore(s => s.pushThroughput)
-  const pushTailMessage      = useDataStore(s => s.pushTailMessage)
   const addDiscovered        = useDataStore(s => s.addDiscoveredServer)
   const removeDiscovered     = useDataStore(s => s.removeDiscoveredServer)
   const setReplay            = useDataStore(s => s.setReplayProgress)
@@ -27,8 +77,11 @@ export function useWebSocketBridge(): void {
 
     const unsubs: Array<() => void> = []
 
+    // ── Connection status ───────────────────────────────────────────────
+    // Previously: ws.on('*', () => setWSConnected(true)) fired on EVERY event
+    // including every message.received — a pointless Zustand write per message.
+    // Now: only update on the dedicated connected event + 5s poll below.
     unsubs.push(ws.on('connected', () => setWSConnected(true)))
-    unsubs.push(ws.on('*', () => setWSConnected(true)))
 
     unsubs.push(ws.on<ClusterInfo>('cluster.topology', ({ data }) => {
       setCluster(data)
@@ -44,17 +97,15 @@ export function useWebSocketBridge(): void {
       pushThroughput(data.clusterId, data)
     }))
 
+    // ── Tail messages — routed through the RAF batch queue ──────────────
+    // Each message.received is buffered; the RAF flush commits the whole
+    // batch to Zustand in one update → at most 60 re-renders/second.
     unsubs.push(ws.on<TailedMessage>('message.received', ({ data }) => {
-      const msg = { ...data, id: nextId() }
-      if (data.subjectFilter) {
-        // Raw NATS subject tail — key is "subj:{clusterId}:{subjectFilter}"
-        const key = `subj:${data.clusterId ?? ''}:${data.subjectFilter}`
-        pushTailMessage(key, msg)
-      } else {
-        // Stream-bound tail — key is "{clusterId}:{stream}"
-        const key = `${data.clusterId ?? ''}:${data.stream}`
-        pushTailMessage(key, msg)
-      }
+      const msg: TailedMessage = { ...data, id: nextId() }
+      const key = data.subjectFilter
+        ? `subj:${data.clusterId ?? ''}:${data.subjectFilter}`
+        : `${data.clusterId ?? ''}:${data.stream}`
+      enqueueMessage(key, msg)
     }))
 
     unsubs.push(ws.on<NATSServer>('discovery.found', ({ data }) => {
@@ -65,23 +116,21 @@ export function useWebSocketBridge(): void {
       removeDiscovered(data.id)
     }))
 
-    // Stream tail events — key "{clusterId}:{stream}"
+    // tail.started / tail.stopped — update isActive immediately (not batched)
     unsubs.push(ws.on('tail.started', ({ data }) => {
       const d = data as { clusterId?: string; stream?: string; subjectFilter?: string }
-      if (d.subjectFilter) {
-        setTailActive(`subj:${d.clusterId ?? ''}:${d.subjectFilter}`, true)
-      } else {
-        setTailActive(`${d.clusterId ?? ''}:${d.stream ?? ''}`, true)
-      }
+      const key = d.subjectFilter
+        ? `subj:${d.clusterId ?? ''}:${d.subjectFilter}`
+        : `${d.clusterId ?? ''}:${d.stream ?? ''}`
+      setTailActive(key, true)
     }))
 
     unsubs.push(ws.on('tail.stopped', ({ data }) => {
       const d = data as { clusterId?: string; stream?: string; subjectFilter?: string }
-      if (d.subjectFilter) {
-        setTailActive(`subj:${d.clusterId ?? ''}:${d.subjectFilter}`, false)
-      } else {
-        setTailActive(`${d.clusterId ?? ''}:${d.stream ?? ''}`, false)
-      }
+      const key = d.subjectFilter
+        ? `subj:${d.clusterId ?? ''}:${d.subjectFilter}`
+        : `${d.clusterId ?? ''}:${d.stream ?? ''}`
+      setTailActive(key, false)
     }))
 
     unsubs.push(ws.on('replay.progress', ({ data }) => {
@@ -94,13 +143,19 @@ export function useWebSocketBridge(): void {
       console.error('[ws] server error', e.code, e.message)
     }))
 
+    // Periodic connectivity check (covers reconnects after network blip)
     const checkInterval = setInterval(() => {
       setWSConnected(ws.isConnected)
-    }, 5000)
+    }, 5_000)
 
     return () => {
       unsubs.forEach(fn => fn())
       clearInterval(checkInterval)
+      // Cancel pending flush on unmount so we don't call into an unmounted store
+      if (rafHandle !== null) {
+        cancelAnimationFrame(rafHandle)
+        rafHandle = null
+      }
     }
   }, [])
 }
@@ -140,14 +195,16 @@ export function useTail(clusterId: string, stream: string) {
     setActive(key, false)
   }, [clusterId, stream, key, setActive])
 
-  const clear = useCallback(() => clearTail(key), [key, clearTail])
+  const clear = useCallback(() => {
+    clearTail(key)
+    pendingMessages.delete(key) // also drain any buffered-but-unflushed messages
+  }, [key, clearTail])
 
   return { start, stop, clear }
 }
 
 /**
  * Start/stop tailing a raw NATS subject pattern (no JetStream stream binding).
- * Supports wildcards: * (single token) and > (rest of subject).
  */
 export function useTailSubject(clusterId: string, subject: string) {
   const clearTail = useDataStore(s => s.clearTail)
@@ -166,7 +223,10 @@ export function useTailSubject(clusterId: string, subject: string) {
     setActive(key, false)
   }, [clusterId, subject, key, setActive])
 
-  const clear = useCallback(() => clearTail(key), [key, clearTail])
+  const clear = useCallback(() => {
+    clearTail(key)
+    pendingMessages.delete(key)
+  }, [key, clearTail])
 
   return { start, stop, clear }
 }

@@ -138,10 +138,12 @@ func (h *handler) handleTailStart(clientID string, payload json.RawMessage) {
 		}()
 
 		err := h.inspector.TailStream(ctx, req.ClusterID, req.Stream, func(msg types.TailedMessage) {
-			h.hub.Broadcast(gateway.EventMessageReceived, msg)
+			// Route only to the client that requested this tail —
+			// avoids flooding every connected tab's send buffer.
+			h.hub.SendToClient(clientID, gateway.EventMessageReceived, msg)
 		})
 		if err != nil && ctx.Err() == nil {
-			h.hub.Broadcast(gateway.EventError, map[string]string{
+			h.hub.SendToClient(clientID, gateway.EventError, map[string]string{
 				"code":    "TAIL_ERROR",
 				"message": err.Error(),
 			})
@@ -208,10 +210,10 @@ func (h *handler) handleSubjectTailStart(clientID string, payload json.RawMessag
 		}()
 
 		err := h.inspector.TailSubject(ctx, req.ClusterID, req.Subject, func(msg types.TailedMessage) {
-			h.hub.Broadcast(gateway.EventMessageReceived, msg)
+			h.hub.SendToClient(clientID, gateway.EventMessageReceived, msg)
 		})
 		if err != nil && ctx.Err() == nil {
-			h.hub.Broadcast(gateway.EventError, map[string]string{
+			h.hub.SendToClient(clientID, gateway.EventError, map[string]string{
 				"code":    "SUBJECT_TAIL_ERROR",
 				"message": err.Error(),
 			})

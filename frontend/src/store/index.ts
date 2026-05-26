@@ -105,6 +105,7 @@ interface DataState {
   setConsumers: (key: string, consumers: ConsumerInfo[]) => void
   pushThroughput: (clusterId: string, point: ThroughputPoint, maxPoints?: number) => void
   pushTailMessage: (key: string, msg: TailedMessage, maxMsgs?: number) => void
+  batchPushTailMessages: (key: string, msgs: TailedMessage[], maxMsgs?: number) => void
   clearTail: (key: string) => void
   setTailActive: (key: string, active: boolean) => void
   setReplayProgress: (id: string, progress: ReplayProgress) => void
@@ -161,6 +162,16 @@ export const useDataStore = create<DataState>()(
         const prev = s.tailMessages[key] ?? []
         const next = [...prev, msg]
         if (next.length > maxMsgs) next.splice(0, next.length - maxMsgs)
+        return { tailMessages: { ...s.tailMessages, [key]: next } }
+      }),
+
+    // Batch variant: one Zustand update for N messages — used by the RAF flush loop.
+    batchPushTailMessages: (key, newMsgs, maxMsgs = MAX_TAIL_MESSAGES) =>
+      set((s) => {
+        if (newMsgs.length === 0) return s
+        const prev = s.tailMessages[key] ?? []
+        const combined = [...prev, ...newMsgs]
+        const next = combined.length > maxMsgs ? combined.slice(-maxMsgs) : combined
         return { tailMessages: { ...s.tailMessages, [key]: next } }
       }),
 

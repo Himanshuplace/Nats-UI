@@ -159,6 +159,23 @@ func (h *Hub) Broadcast(eventType string, data any) {
 	}
 }
 
+// SendToClient sends an event to exactly one client by ID.
+// Used for tail messages so only the requesting tab receives them.
+func (h *Hub) SendToClient(clientID, eventType string, data any) {
+	payload := h.marshal(eventType, data)
+	if payload == nil {
+		return
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for client := range h.clients {
+		if client.id == clientID {
+			h.safeWrite(client, payload)
+			return
+		}
+	}
+}
+
 // BroadcastTopic sends to clients subscribed to a topic prefix.
 func (h *Hub) BroadcastTopic(topic, eventType string, data any) {
 	payload := h.marshal(eventType, data)

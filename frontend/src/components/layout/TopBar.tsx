@@ -1,4 +1,4 @@
-import { Search, Bell, Zap, ChevronRight } from 'lucide-react'
+import { Search, Bell, Zap, ChevronRight, Sun, Moon } from 'lucide-react'
 import { useUIStore, useDataStore } from '@/store'
 import { Badge, Button, HealthDot, cn } from '@/components/ui'
 import { formatNumber } from '@/lib/format'
@@ -20,11 +20,13 @@ const VIEW_LABELS: Record<View, string> = {
 }
 
 export function TopBar() {
-  const activeView     = useUIStore(s => s.activeView)
-  const wsConnected    = useUIStore(s => s.wsConnected)
-  const openPalette    = useUIStore(s => s.openCommandPalette)
-  const clusters       = useDataStore(s => s.clusters)
-  const throughput     = useDataStore(s => s.throughput)
+  const activeView  = useUIStore(s => s.activeView)
+  const wsConnected = useUIStore(s => s.wsConnected)
+  const openPalette = useUIStore(s => s.openCommandPalette)
+  const theme       = useUIStore(s => s.theme)
+  const toggleTheme = useUIStore(s => s.toggleTheme)
+  const clusters    = useDataStore(s => s.clusters)
+  const throughput  = useDataStore(s => s.throughput)
 
   const clusterList   = Object.values(clusters)
   const clusterHealth = clusterList.every(c => c.health === 'ok')
@@ -33,18 +35,17 @@ export function TopBar() {
     ? 'critical'
     : 'degraded'
 
-  // Aggregate throughput across all clusters
   const totalMsgs = Object.values(throughput).reduce((sum, pts) => {
     const last = pts[pts.length - 1]
     return sum + (last?.inMsgs ?? 0) + (last?.outMsgs ?? 0)
   }, 0)
 
   return (
-    <header className="h-12 flex items-center gap-3 px-4 border-b border-bg-border bg-bg-elevated flex-shrink-0">
+    <header className="h-12 flex items-center gap-3 px-4 glass border-b border-bg-border/40 flex-shrink-0 relative z-10">
       {/* Breadcrumb */}
       <div className="flex items-center gap-1.5 flex-1 min-w-0">
         <span className="text-xs font-mono text-text-muted">NatsUI</span>
-        <ChevronRight className="w-3 h-3 text-text-muted flex-shrink-0" />
+        <ChevronRight className="w-3 h-3 text-text-muted/50 flex-shrink-0" />
         <span className="text-xs font-mono text-text-primary font-medium truncate">
           {VIEW_LABELS[activeView]}
         </span>
@@ -52,7 +53,7 @@ export function TopBar() {
         {/* Active cluster badges */}
         {clusterList.length > 0 && (
           <>
-            <ChevronRight className="w-3 h-3 text-text-muted flex-shrink-0" />
+            <ChevronRight className="w-3 h-3 text-text-muted/50 flex-shrink-0" />
             <div className="flex items-center gap-1.5">
               {clusterList.slice(0, 3).map(c => (
                 <div key={c.id} className="flex items-center gap-1">
@@ -70,7 +71,7 @@ export function TopBar() {
 
       {/* Live throughput ticker */}
       {totalMsgs > 0 && (
-        <div className="hidden md:flex items-center gap-1.5 px-2 py-1 bg-bg-surface border border-bg-border rounded">
+        <div className="hidden md:flex items-center gap-1.5 px-2 py-1 glass-sm rounded-lg">
           <Zap className="w-3 h-3 text-accent-cyan" />
           <span className="text-2xs font-mono text-accent-cyan">
             {formatNumber(totalMsgs)} msg/s
@@ -98,15 +99,27 @@ export function TopBar() {
       >
         <Search className="w-3.5 h-3.5" />
         <span className="text-2xs font-mono">Search</span>
-        <kbd className="text-2xs font-mono bg-bg-surface border border-bg-border px-1 rounded">⌘K</kbd>
+        <kbd className="text-2xs font-mono glass-sm px-1.5 py-0.5 rounded text-text-muted">⌘K</kbd>
       </Button>
 
+      {/* Dark / light toggle */}
+      <button
+        onClick={toggleTheme}
+        className="p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-hover/60 transition-colors"
+        title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      >
+        {theme === 'dark'
+          ? <Sun className="w-4 h-4" />
+          : <Moon className="w-4 h-4" />
+        }
+      </button>
+
       {/* Notifications placeholder */}
-      <button className="p-1.5 rounded text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors relative">
+      <button className="p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-hover/60 transition-colors relative">
         <Bell className="w-4 h-4" />
       </button>
 
-      {/* WS indicator */}
+      {/* WS dot */}
       <div
         className={cn(
           'w-2 h-2 rounded-full flex-shrink-0',

@@ -51,15 +51,15 @@ export function ConsumerInspector() {
   const dead   = consumers?.filter(c => c.health === 'dead').length ?? 0
 
   return (
-    <div className="flex h-full bg-bg-base">
+    <div className="flex h-full">
       {/* Left: list */}
-      <div className="w-80 flex-shrink-0 border-r border-bg-border flex flex-col">
+      <div className="w-80 flex-shrink-0 border-r border-bg-border/50 flex flex-col glass">
         <div className="p-3 border-b border-bg-border">
           <label className="text-2xs font-mono text-text-muted uppercase tracking-widest block mb-1.5">Stream</label>
           <select
             value={selectedStream}
             onChange={e => { setSelectedStream(e.target.value); setSelectedConsumer(null); setShowCreate(false) }}
-            className="w-full bg-bg-surface border border-bg-border text-text-secondary text-xs font-mono rounded px-2 py-1.5 outline-none focus:border-accent-cyan/50"
+            className="select-base"
           >
             <option value="">— select stream —</option>
             {streams?.map(s => <option key={s.config.name} value={s.config.name}>{s.config.name}</option>)}
@@ -384,7 +384,7 @@ function CreateConsumerForm({ clusterId, stream, onClose, onCreated }: {
   )
 }
 
-const iCls = 'w-full bg-bg-surface border border-bg-border rounded px-2 py-1.5 text-xs font-mono text-text-primary placeholder-text-muted outline-none focus:border-accent-cyan/50'
+const iCls = 'input-base'
 
 function CField({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -403,7 +403,7 @@ function HealthBadge({ health }: { health: ConsumerHealth }) {
 
 function SequenceBlock({ label, consumerSeq, streamSeq, dim }: { label: string; consumerSeq: number; streamSeq: number; dim?: boolean }) {
   return (
-    <div className={cn('p-3 rounded-md border', dim ? 'bg-transparent border-bg-border' : 'bg-bg-surface border-bg-border')}>
+    <div className={cn('p-3 rounded-xl glass', dim ? 'opacity-60' : '')}>
       <p className="text-2xs font-mono text-text-muted uppercase tracking-wide mb-2">{label}</p>
       <div className="space-y-1">
         <div className="flex justify-between text-xs font-mono"><span className="text-text-muted">consumer seq</span><span className="text-text-secondary">{formatNumber(consumerSeq)}</span></div>

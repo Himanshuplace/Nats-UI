@@ -69,18 +69,18 @@ export function CommandPalette() {
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-bg-base/80 backdrop-blur-sm"
+        className="absolute inset-0 bg-bg-base/60 backdrop-blur-md"
         onClick={close}
       />
 
       {/* Palette */}
       <div className="relative w-full max-w-xl mx-4 animate-slide-up">
         <Command
-          className="bg-bg-elevated border border-bg-border-strong rounded-xl shadow-2xl overflow-hidden"
+          className="glass border border-bg-border-strong rounded-xl shadow-glass overflow-hidden"
           shouldFilter
         >
           {/* Input */}
-          <div className="flex items-center gap-3 px-4 py-3 border-b border-bg-border">
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-bg-border/50">
             <Search className="w-4 h-4 text-text-muted flex-shrink-0" />
             <Command.Input
               placeholder="Type a command or search..."
@@ -93,7 +93,7 @@ export function CommandPalette() {
           </div>
 
           {/* Results */}
-          <Command.List className="max-h-80 overflow-y-auto py-2">
+          <Command.List className="max-h-80 overflow-y-auto py-2 bg-transparent">
             <Command.Empty className="py-8 text-center text-sm font-mono text-text-muted">
               No results found
             </Command.Empty>
@@ -140,7 +140,7 @@ export function CommandPalette() {
           </Command.List>
 
           {/* Footer hint */}
-          <div className="border-t border-bg-border px-4 py-2 flex items-center gap-4 text-2xs font-mono text-text-muted">
+          <div className="border-t border-bg-border/50 px-4 py-2 flex items-center gap-4 text-2xs font-mono text-text-muted">
             <span><kbd className="font-mono">↑↓</kbd> navigate</span>
             <span><kbd className="font-mono">↵</kbd> select</span>
             <span><kbd className="font-mono">Esc</kbd> close</span>

@@ -25,19 +25,21 @@ function ViewFallback() {
 
 function OverviewView() {
   return (
-    <div className="flex-1 overflow-y-auto p-6 bg-bg-base">
-      <div className="max-w-4xl mx-auto space-y-6">
+    <div className="flex-1 overflow-y-auto p-6">
+      <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
+        {/* Header */}
         <div>
-          <h1 className="text-2xl font-mono font-bold text-text-primary">Overview</h1>
+          <h1 className="text-2xl font-sans font-semibold text-text-primary tracking-tight">Overview</h1>
           <p className="text-sm font-mono text-text-muted mt-1">
             NatsUI — Realtime NATS & JetStream control plane
           </p>
         </div>
 
+        {/* Quick start cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <QuickStartCard
             title="1. Connect"
-            description="Connect to a NATS server manually or let NatsUI auto-discover one locally or in Docker."
+            description="Connect to a NATS server or let NatsUI auto-discover one locally or in Docker."
             action="Settings → Connections"
             color="cyan"
           />
@@ -55,23 +57,24 @@ function OverviewView() {
           />
         </div>
 
-        <div className="bg-bg-elevated border border-bg-border rounded-lg p-4">
-          <h3 className="text-xs font-mono font-semibold text-text-muted uppercase tracking-widest mb-3">
+        {/* Keyboard shortcuts */}
+        <div className="glass rounded-xl p-5 shadow-glass dark:shadow-glass">
+          <h3 className="text-xs font-mono font-semibold text-text-muted uppercase tracking-widest mb-4">
             Keyboard Shortcuts
           </h3>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-1.5">
+          <div className="grid grid-cols-2 gap-x-8 gap-y-2">
             {[
               ['⌘K', 'Command palette'],
               ['G T', 'Cluster topology'],
               ['G S', 'Stream explorer'],
               ['G C', 'Consumer inspector'],
-              ['G L', 'Message tail'],
+              ['G L', 'Live tail'],
               ['G R', 'Replay studio'],
               ['G M', 'Metrics dashboard'],
               ['?', 'Show all shortcuts'],
             ].map(([key, desc]) => (
               <div key={key} className="flex items-center gap-3">
-                <kbd className="text-2xs font-mono bg-bg-surface border border-bg-border px-1.5 py-0.5 rounded text-text-muted whitespace-nowrap">
+                <kbd className="text-2xs font-mono glass-sm px-1.5 py-0.5 rounded text-text-muted whitespace-nowrap">
                   {key}
                 </kbd>
                 <span className="text-xs font-mono text-text-muted">{desc}</span>
@@ -90,24 +93,32 @@ function QuickStartCard({ title, description, action, color }: {
   action: string
   color: 'cyan' | 'green' | 'purple'
 }) {
-  const borderColor = { cyan: 'border-accent-cyan/20', green: 'border-accent-green/20', purple: 'border-accent-purple/20' }[color]
-  const textColor   = { cyan: 'text-accent-cyan', green: 'text-accent-green', purple: 'text-accent-purple' }[color]
+  const accentBorder = {
+    cyan:   'border-l-accent-cyan',
+    green:  'border-l-accent-green',
+    purple: 'border-l-accent-purple',
+  }[color]
+  const accentText = {
+    cyan:   'text-accent-cyan',
+    green:  'text-accent-green',
+    purple: 'text-accent-purple',
+  }[color]
 
   return (
-    <div className={`bg-bg-elevated border ${borderColor} rounded-lg p-4 space-y-2`}>
-      <h3 className={`text-sm font-mono font-bold ${textColor}`}>{title}</h3>
+    <div className={`glass rounded-xl p-5 border-l-2 ${accentBorder} shadow-glass dark:shadow-glass space-y-2`}>
+      <h3 className={`text-sm font-sans font-semibold ${accentText}`}>{title}</h3>
       <p className="text-xs font-mono text-text-secondary leading-relaxed">{description}</p>
-      <p className={`text-2xs font-mono ${textColor} opacity-70`}>→ {action}</p>
+      <p className={`text-2xs font-mono ${accentText} opacity-70`}>→ {action}</p>
     </div>
   )
 }
 
 function SettingsView() {
   return (
-    <div className="flex-1 p-6 bg-bg-base">
-      <div className="max-w-2xl space-y-6">
-        <h1 className="text-2xl font-mono font-bold text-text-primary">Settings</h1>
-        <div className="bg-bg-elevated border border-bg-border rounded-lg p-4">
+    <div className="flex-1 p-6 overflow-y-auto">
+      <div className="max-w-2xl space-y-6 animate-fade-in">
+        <h1 className="text-2xl font-sans font-semibold text-text-primary tracking-tight">Settings</h1>
+        <div className="glass rounded-xl p-5 shadow-glass dark:shadow-glass">
           <h3 className="text-xs font-mono font-semibold text-text-muted uppercase tracking-widest mb-4">
             NATS Connections
           </h3>
@@ -136,7 +147,7 @@ function ConnectForm() {
       const { api } = await import('@/lib/api')
       const res = await api.connections.connect({ name, url, token })
       setActive(res.id)
-      setStatus({ ok: true, msg: `Connected! JetStream: ${res.jetstream}` })
+      setStatus({ ok: true, msg: `Connected — JetStream: ${res.jetstream}` })
     } catch (err: any) {
       setStatus({ ok: false, msg: err.message ?? 'Connection failed' })
     } finally {
@@ -148,46 +159,35 @@ function ConnectForm() {
     <form onSubmit={handleConnect} className="space-y-3">
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-2xs font-mono text-text-muted uppercase tracking-widest block mb-1">
+          <label className="text-2xs font-mono text-text-muted uppercase tracking-widest block mb-1.5">
             Connection Name
           </label>
-          <input
-            name="name"
-            type="text"
-            placeholder="prod-us-east-1"
-            className="w-full bg-bg-surface border border-bg-border rounded px-3 py-2 text-xs font-mono text-text-primary placeholder-text-muted outline-none focus:border-accent-cyan/50"
-          />
+          <input name="name" type="text" placeholder="prod-us-east-1" className="input-base" />
         </div>
         <div>
-          <label className="text-2xs font-mono text-text-muted uppercase tracking-widest block mb-1">
+          <label className="text-2xs font-mono text-text-muted uppercase tracking-widest block mb-1.5">
             Auth Token <span className="normal-case text-text-muted/60">(optional)</span>
           </label>
-          <input
-            name="token"
-            type="password"
-            placeholder="natsui-dev-token"
-            className="w-full bg-bg-surface border border-bg-border rounded px-3 py-2 text-xs font-mono text-text-primary placeholder-text-muted outline-none focus:border-accent-cyan/50"
-          />
+          <input name="token" type="password" placeholder="natsui-dev-token" className="input-base" />
         </div>
       </div>
       <div>
-        <label className="text-2xs font-mono text-text-muted uppercase tracking-widest block mb-1">
+        <label className="text-2xs font-mono text-text-muted uppercase tracking-widest block mb-1.5">
           NATS URL
         </label>
         <input
-          name="url"
-          type="text"
+          name="url" type="text"
           placeholder="nats://localhost:4222"
           defaultValue="nats://localhost:4222"
           required
-          className="w-full bg-bg-surface border border-bg-border rounded px-3 py-2 text-xs font-mono text-text-primary placeholder-text-muted outline-none focus:border-accent-cyan/50"
+          className="input-base"
         />
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 pt-1">
         <button
           type="submit"
           disabled={loading}
-          className="px-4 py-2 bg-accent-cyan text-bg-base text-xs font-mono font-medium rounded hover:bg-accent-cyan/90 disabled:opacity-50 transition-colors"
+          className="px-4 py-2 bg-accent-cyan text-bg-base text-xs font-mono font-semibold rounded-lg hover:bg-accent-cyan/90 disabled:opacity-50 transition-colors"
         >
           {loading ? 'Connecting…' : 'Connect'}
         </button>
@@ -197,9 +197,10 @@ function ConnectForm() {
           </span>
         )}
       </div>
-      <p className="text-2xs font-mono text-text-muted/60">
-        The NATS cluster in docker-compose uses token auth by default.
-        Set <code className="text-accent-cyan">NATS_AUTH_TOKEN</code> in your environment (default: <code className="text-accent-cyan">natsui-dev-token</code>).
+      <p className="text-2xs font-mono text-text-muted/60 pt-1">
+        The docker-compose cluster uses token auth. Set{' '}
+        <code className="text-accent-cyan">NATS_AUTH_TOKEN</code> in your env
+        (default: <code className="text-accent-cyan">natsui-dev-token</code>).
       </p>
     </form>
   )
@@ -229,7 +230,23 @@ export function AppShell() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-bg-base text-text-primary">
+    <div className="relative flex h-screen w-screen overflow-hidden bg-bg-base text-text-primary">
+      {/* ── Gradient orb background — gives the glass panels something to blur ── */}
+      <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
+        <div
+          className="absolute -top-32 -left-32 w-[600px] h-[600px] rounded-full blur-3xl"
+          style={{ background: 'var(--orb1)' }}
+        />
+        <div
+          className="absolute top-1/2 -right-48 w-[500px] h-[500px] rounded-full blur-3xl"
+          style={{ background: 'var(--orb2)' }}
+        />
+        <div
+          className="absolute -bottom-48 left-1/3 w-[500px] h-[500px] rounded-full blur-3xl"
+          style={{ background: 'var(--orb3)' }}
+        />
+      </div>
+
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <TopBar />
@@ -244,8 +261,8 @@ export function AppShell() {
 
 function DLQPlaceholder() {
   return (
-    <div className="flex-1 flex items-center justify-center bg-bg-base">
-      <div className="text-center font-mono">
+    <div className="flex-1 flex items-center justify-center">
+      <div className="text-center font-mono animate-fade-in">
         <p className="text-4xl mb-3">🪦</p>
         <p className="text-sm font-mono text-text-secondary">Dead Letter Queue Analyzer</p>
         <p className="text-xs font-mono text-text-muted mt-1">Coming soon — poison message inspection & redelivery analysis</p>

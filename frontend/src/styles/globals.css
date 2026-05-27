@@ -2,10 +2,65 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Design tokens ────────────────────────────────────────────────────────────
+   All semantic colors are CSS custom properties.
+   The `.dark` class on <html> flips the palette automatically.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Light mode palette — default */
+  --c-bg-base:           240 244 248;
+  --c-bg-elevated:       255 255 255;
+  --c-bg-surface:        248 250 252;
+  --c-bg-hover:          235 241 249;
+  --c-bg-active:         224 234 246;
+  --c-bg-border:         213 225 238;
+  --c-bg-border-strong:  196 210 226;
+  --c-text-primary:      15 23 42;
+  --c-text-secondary:    51 65 85;
+  --c-text-muted:        100 116 139;
+  --c-text-disabled:     148 163 184;
+  --c-text-inverse:      240 244 248;
+
+  --glass-bg:             255 255 255;
+  --glass-opacity:        0.65;
+  --glass-border:         0 0 0;
+  --glass-border-opacity: 0.07;
+
+  --orb1: rgba(6, 182, 212, 0.06);
+  --orb2: rgba(168, 85, 247, 0.04);
+  --orb3: rgba(16, 185, 129, 0.04);
+}
+
+.dark {
+  /* Dark mode palette */
+  --c-bg-base:           7 10 13;
+  --c-bg-elevated:       13 17 23;
+  --c-bg-surface:        17 24 39;
+  --c-bg-hover:          26 35 50;
+  --c-bg-active:         30 41 59;
+  --c-bg-border:         30 42 58;
+  --c-bg-border-strong:  45 59 78;
+  --c-text-primary:      226 232 240;
+  --c-text-secondary:    148 163 184;
+  --c-text-muted:        75 85 99;
+  --c-text-disabled:     31 41 55;
+  --c-text-inverse:      10 15 26;
+
+  --glass-bg:             255 255 255;
+  --glass-opacity:        0.04;
+  --glass-border:         255 255 255;
+  --glass-border-opacity: 0.07;
+
+  --orb1: rgba(6, 182, 212, 0.08);
+  --orb2: rgba(168, 85, 247, 0.06);
+  --orb3: rgba(39, 170, 225, 0.06);
+}
+
+/* ── Base reset ──────────────────────────────────────────────────────────── */
+
 @layer base {
-  *, *::before, *::after {
-    box-sizing: border-box;
-  }
+  *, *::before, *::after { box-sizing: border-box; }
 
   html {
     -webkit-font-smoothing: antialiased;
@@ -20,105 +75,90 @@
   }
 
   /* Thin scrollbars */
-  ::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
-  }
-  ::-webkit-scrollbar-track {
-    @apply bg-bg-base;
-  }
+  ::-webkit-scrollbar       { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
-    @apply bg-bg-border-strong rounded-full;
+    background: rgb(var(--c-bg-border-strong));
+    border-radius: 9999px;
   }
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-text-muted;
-  }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-text-muted)); }
 
-  /* Selection color */
-  ::selection {
-    @apply bg-accent-cyan/20 text-accent-cyan;
-  }
+  ::selection { @apply bg-accent-cyan/20 text-accent-cyan; }
 
-  /* Focus ring */
-  :focus-visible {
-    @apply outline-none ring-1 ring-accent-cyan/50;
-  }
+  :focus-visible { @apply outline-none ring-1 ring-accent-cyan/50; }
 }
+
+/* ── Glass morphism utilities ────────────────────────────────────────────── */
 
 @layer components {
-  /* Reusable form input */
+  /* Primary glass surface — use on panels, cards, sidebar, topbar */
+  .glass {
+    background: rgba(var(--glass-bg) / var(--glass-opacity));
+    border: 1px solid rgba(var(--glass-border) / var(--glass-border-opacity));
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+  }
+
+  /* Lighter nested glass */
+  .glass-sm {
+    background: rgba(var(--glass-bg) / calc(var(--glass-opacity) * 0.6));
+    border: 1px solid rgba(var(--glass-border) / calc(var(--glass-border-opacity) * 0.7));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  /* Form inputs */
   .input-base {
-    @apply w-full bg-bg-surface border border-bg-border rounded px-2.5 py-1.5 text-xs font-mono
-           text-text-primary placeholder-text-muted outline-none
-           focus:border-accent-cyan/50 transition-colors;
+    @apply w-full rounded-lg px-3 py-2 text-xs font-mono
+           text-text-primary placeholder-text-muted/60 outline-none
+           transition-all duration-150;
+    background: rgb(var(--c-bg-surface) / 0.8);
+    border: 1px solid rgb(var(--c-bg-border));
+  }
+  .input-base:focus {
+    border-color: rgba(6, 182, 212, 0.5);
+    background: rgb(var(--c-bg-surface));
   }
 
-  /* Dense table */
-  .data-table {
-    @apply w-full text-xs font-mono border-collapse;
+  .select-base {
+    @apply w-full rounded-lg px-3 py-2 text-xs font-mono
+           text-text-secondary outline-none transition-all duration-150;
+    background: rgb(var(--c-bg-surface) / 0.8);
+    border: 1px solid rgb(var(--c-bg-border));
   }
-  .data-table th {
-    @apply px-3 py-1.5 text-2xs text-text-muted font-semibold uppercase tracking-widest
-           text-left border-b border-bg-border bg-bg-elevated;
-  }
-  .data-table td {
-    @apply px-3 py-2 text-text-secondary border-b border-bg-border/50;
-  }
-  .data-table tr:hover td {
-    @apply bg-bg-hover text-text-primary;
-  }
+  .select-base:focus { border-color: rgba(6, 182, 212, 0.5); }
 
-  /* Terminal-style pre */
+  /* Data table */
+  .data-table          { @apply w-full text-xs font-mono border-collapse; }
+  .data-table th       { @apply px-3 py-1.5 text-2xs text-text-muted font-semibold uppercase tracking-widest text-left border-b border-bg-border; background: rgb(var(--c-bg-elevated) / 0.5); }
+  .data-table td       { @apply px-3 py-2 text-text-secondary border-b border-bg-border/50; }
+  .data-table tr:hover td { @apply text-text-primary; background: rgb(var(--c-bg-hover) / 0.5); }
+
+  /* Terminal pre */
   .terminal-pre {
-    @apply bg-bg-base border border-bg-border rounded font-mono text-xs text-text-secondary
-           p-3 overflow-x-auto leading-relaxed;
+    @apply rounded-lg font-mono text-xs text-text-secondary p-3 overflow-x-auto leading-relaxed;
+    background: rgb(var(--c-bg-base) / 0.8);
+    border: 1px solid rgb(var(--c-bg-border));
   }
-
-  /* Status badge */
-  .status-dot-ok      { @apply w-2 h-2 rounded-full bg-accent-green; }
-  .status-dot-warn    { @apply w-2 h-2 rounded-full bg-accent-yellow; }
-  .status-dot-error   { @apply w-2 h-2 rounded-full bg-accent-red animate-pulse; }
-  .status-dot-unknown { @apply w-2 h-2 rounded-full bg-text-muted; }
 }
 
-@layer utilities {
-  /* Truncate with ellipsis */
-  .truncate-mono {
-    @apply font-mono truncate;
-    direction: ltr;
-  }
+/* ── ReactFlow overrides ─────────────────────────────────────────────────── */
 
-  /* Glow utilities */
-  .glow-cyan   { @apply shadow-glow-cyan; }
-  .glow-green  { @apply shadow-glow-green; }
-  .glow-red    { @apply shadow-glow-red; }
-  .glow-purple { @apply shadow-glow-purple; }
-}
-
-/* ReactFlow overrides */
-.react-flow__attribution {
-  display: none !important;
-}
-.react-flow__controls {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
+.react-flow__attribution    { display: none !important; }
+.react-flow__controls       { background: transparent !important; border: none !important; box-shadow: none !important; }
 .react-flow__controls-button {
-  @apply bg-bg-elevated border border-bg-border text-text-muted rounded !important;
+  background: rgb(var(--c-bg-elevated)) !important;
+  border: 1px solid rgb(var(--c-bg-border)) !important;
+  color: rgb(var(--c-text-muted)) !important;
+  border-radius: 6px !important;
 }
-.react-flow__controls-button:hover {
-  @apply bg-bg-hover !important;
-}
+.react-flow__controls-button:hover { background: rgb(var(--c-bg-hover)) !important; }
 .react-flow__minimap {
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
+  border: 1px solid rgb(var(--c-bg-border));
 }
 
-/* Monaco editor dark theme tweaks */
-.monaco-editor {
-  background-color: transparent !important;
-}
-.monaco-editor .margin {
-  background-color: transparent !important;
-}
+/* ── Monaco editor ───────────────────────────────────────────────────────── */
+.monaco-editor         { background-color: transparent !important; }
+.monaco-editor .margin { background-color: transparent !important; }

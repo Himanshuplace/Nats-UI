@@ -1,10 +1,9 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/nats-icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#070A0D" />
     <title>NatsUI — NATS Control Plane</title>
     <meta name="description" content="Realtime NATS and JetStream observability platform for infrastructure engineers" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -13,10 +12,17 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Inter:wght@300;400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <style>
-      /* Prevent flash of unstyled content */
-      html { background-color: #070A0D; }
-    </style>
+    <!-- Theme init: run before React to prevent flash of wrong theme -->
+    <script>
+      (function () {
+        var saved = localStorage.getItem('natsui-theme');
+        var theme = saved === 'light' ? 'light' : 'dark'; // default dark
+        document.documentElement.classList.toggle('dark', theme === 'dark');
+        // Set bg-color immediately so no white flash during JS load
+        document.documentElement.style.backgroundColor =
+          theme === 'dark' ? '#070A0D' : '#F0F4F8';
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

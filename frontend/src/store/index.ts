@@ -18,6 +18,7 @@ interface UIState {
   sidebarCollapsed: boolean
   splitPaneRatio: number       // 0–1 fraction for split pane
   wsConnected: boolean
+  theme: 'dark' | 'light'
 
   setView: (view: View) => void
   setActiveCluster: (id: string) => void
@@ -32,6 +33,7 @@ interface UIState {
   addTab: (tab: Tab) => void
   closeTab: (id: string) => void
   setActiveTab: (id: string) => void
+  toggleTheme: () => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -46,6 +48,7 @@ export const useUIStore = create<UIState>()(
     sidebarCollapsed:  false,
     splitPaneRatio:    0.5,
     wsConnected:       false,
+    theme:             (localStorage.getItem('natsui-theme') as 'dark' | 'light') ?? 'dark',
 
     setView: (view) => set({ activeView: view }),
 
@@ -82,6 +85,14 @@ export const useUIStore = create<UIState>()(
     }),
 
     setActiveTab: (id) => set({ activeTabId: id }),
+
+    toggleTheme: () => set((s) => {
+      const next = s.theme === 'dark' ? 'light' : 'dark'
+      localStorage.setItem('natsui-theme', next)
+      document.documentElement.classList.toggle('dark', next === 'dark')
+      document.documentElement.style.backgroundColor = next === 'dark' ? '#070A0D' : '#F0F4F8'
+      return { theme: next }
+    }),
   })),
 )
 

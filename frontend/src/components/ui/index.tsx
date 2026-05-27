@@ -20,13 +20,13 @@ export function Badge({ variant = 'default', size = 'sm', className, children, .
         'inline-flex items-center font-mono font-medium rounded border',
         size === 'xs' ? 'px-1 py-0 text-2xs' : 'px-1.5 py-0.5 text-xs',
         {
-          'bg-bg-surface border-bg-border text-text-secondary': variant === 'default',
-          'bg-accent-green/10 border-accent-green/20 text-accent-green': variant === 'green',
-          'bg-accent-yellow/10 border-accent-yellow/20 text-accent-yellow': variant === 'yellow',
-          'bg-accent-red/10 border-accent-red/20 text-accent-red': variant === 'red',
-          'bg-accent-purple/10 border-accent-purple/20 text-accent-purple': variant === 'purple',
-          'bg-accent-cyan/10 border-accent-cyan/20 text-accent-cyan': variant === 'cyan',
-          'bg-transparent border-transparent text-text-muted': variant === 'ghost',
+          'bg-bg-surface/80 border-bg-border text-text-secondary':            variant === 'default',
+          'bg-accent-green/10 border-accent-green/20 text-accent-green':      variant === 'green',
+          'bg-accent-yellow/10 border-accent-yellow/20 text-accent-yellow':   variant === 'yellow',
+          'bg-accent-red/10 border-accent-red/20 text-accent-red':            variant === 'red',
+          'bg-accent-purple/10 border-accent-purple/20 text-accent-purple':   variant === 'purple',
+          'bg-accent-cyan/10 border-accent-cyan/20 text-accent-cyan':         variant === 'cyan',
+          'bg-transparent border-transparent text-text-muted':                variant === 'ghost',
         },
         className,
       )}
@@ -45,9 +45,12 @@ interface HealthDotProps {
 }
 
 export function HealthDot({ health, size = 'sm' }: HealthDotProps) {
-  const color = health === 'ok' ? 'bg-accent-green'
-    : health === 'degraded' || health === 'slow' || health === 'lagging' ? 'bg-accent-yellow'
-    : health === 'critical' || health === 'dead' ? 'bg-accent-red animate-pulse'
+  const color = health === 'ok'
+    ? 'bg-accent-green'
+    : health === 'degraded' || health === 'slow' || health === 'lagging'
+    ? 'bg-accent-yellow'
+    : health === 'critical' || health === 'dead'
+    ? 'bg-accent-red animate-pulse'
     : 'bg-text-muted'
 
   const sz = size === 'xs' ? 'w-1.5 h-1.5' : size === 'md' ? 'w-3 h-3' : 'w-2 h-2'
@@ -72,15 +75,20 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         type={type}
         disabled={disabled}
         className={cn(
-          'inline-flex items-center gap-1.5 font-mono font-medium rounded border transition-colors focus:outline-none focus:ring-1 focus:ring-accent-cyan/50',
+          'inline-flex items-center gap-1.5 font-mono font-medium rounded-lg border transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-accent-cyan/50',
           disabled && 'opacity-40 cursor-not-allowed pointer-events-none',
           size === 'xs' ? 'px-2 py-0.5 text-2xs' : size === 'md' ? 'px-4 py-2 text-sm' : 'px-2.5 py-1 text-xs',
           {
-            'bg-accent-cyan text-bg-base border-accent-cyan hover:bg-accent-cyan/90': variant === 'primary',
-            'bg-bg-surface border-bg-border-strong text-text-secondary hover:bg-bg-hover hover:text-text-primary': variant === 'secondary',
-            'bg-transparent border-transparent text-text-secondary hover:bg-bg-hover hover:text-text-primary': variant === 'ghost',
-            'bg-accent-red/10 border-accent-red/20 text-accent-red hover:bg-accent-red/20': variant === 'danger',
-            'bg-transparent border-transparent text-text-muted hover:bg-bg-hover hover:text-text-primary p-1 rounded': variant === 'icon',
+            'bg-accent-cyan text-bg-base border-accent-cyan hover:bg-accent-cyan/90 shadow-glow-cyan':
+              variant === 'primary',
+            'glass-sm border-bg-border text-text-secondary hover:bg-bg-hover/60 hover:text-text-primary':
+              variant === 'secondary',
+            'bg-transparent border-transparent text-text-secondary hover:bg-bg-hover/60 hover:text-text-primary':
+              variant === 'ghost',
+            'bg-accent-red/10 border-accent-red/20 text-accent-red hover:bg-accent-red/20':
+              variant === 'danger',
+            'bg-transparent border-transparent text-text-muted hover:bg-bg-hover/60 hover:text-text-primary p-1':
+              variant === 'icon',
           },
           className,
         )}
@@ -97,7 +105,7 @@ Button.displayName = 'Button'
 
 export function Kbd({ children }: { children: ReactNode }) {
   return (
-    <kbd className="inline-flex items-center px-1.5 py-0.5 rounded border border-bg-border-strong bg-bg-surface text-text-muted font-mono text-2xs leading-none">
+    <kbd className="inline-flex items-center px-1.5 py-0.5 rounded border border-bg-border glass-sm text-text-muted font-mono text-2xs leading-none">
       {children}
     </kbd>
   )
@@ -106,7 +114,7 @@ export function Kbd({ children }: { children: ReactNode }) {
 // ── Separator ─────────────────────────────────────────────────────────────────
 
 export function Separator({ className }: { className?: string }) {
-  return <div className={cn('h-px bg-bg-border', className)} />
+  return <div className={cn('h-px bg-bg-border/50', className)} />
 }
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
@@ -117,12 +125,21 @@ interface TooltipProps {
   side?: 'top' | 'bottom' | 'left' | 'right'
 }
 
-export function Tooltip({ content, children }: TooltipProps) {
+export function Tooltip({ content, children, side = 'top' }: TooltipProps) {
+  if (!content) return <>{children}</>
+
+  const posClass = {
+    top:    'bottom-full left-1/2 -translate-x-1/2 mb-1.5',
+    bottom: 'top-full left-1/2 -translate-x-1/2 mt-1.5',
+    left:   'right-full top-1/2 -translate-y-1/2 mr-1.5',
+    right:  'left-full top-1/2 -translate-y-1/2 ml-1.5',
+  }[side]
+
   return (
-    <div className="group relative inline-flex">
+    <div className="group relative inline-flex w-full">
       {children}
-      <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-50">
-        <div className="bg-bg-elevated border border-bg-border-strong text-text-primary text-xs font-mono px-2 py-1 rounded whitespace-nowrap shadow-lg">
+      <div className={cn('pointer-events-none absolute hidden group-hover:block z-50', posClass)}>
+        <div className="glass rounded-lg text-text-primary text-xs font-mono px-2 py-1 whitespace-nowrap shadow-glass">
           {content}
         </div>
       </div>
@@ -147,7 +164,7 @@ export function SectionHeader({ label, count, action, className }: SectionHeader
           {label}
         </span>
         {count !== undefined && (
-          <span className="text-2xs font-mono text-text-muted bg-bg-surface border border-bg-border px-1 rounded">
+          <span className="text-2xs font-mono text-text-muted glass-sm border border-bg-border px-1 rounded">
             {count}
           </span>
         )}
@@ -193,7 +210,7 @@ export function StatCard({ label, value, sub, color = 'default' }: {
   }[color]
 
   return (
-    <div className="bg-bg-elevated border border-bg-border rounded-md p-3 shadow-inner-glow">
+    <div className="glass rounded-xl p-3 shadow-glass">
       <p className="text-2xs font-mono text-text-muted uppercase tracking-widest mb-1">{label}</p>
       <p className={cn('text-lg font-mono font-semibold leading-none', valueColor)}>{value}</p>
       {sub && <p className="text-2xs font-mono text-text-muted mt-1">{sub}</p>}

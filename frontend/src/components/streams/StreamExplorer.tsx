@@ -59,9 +59,9 @@ export function StreamExplorer() {
   }
 
   return (
-    <div className="flex h-full bg-bg-base">
+    <div className="flex h-full">
       {/* Left: stream list */}
-      <div className="w-72 flex-shrink-0 border-r border-bg-border flex flex-col">
+      <div className="w-72 flex-shrink-0 border-r border-bg-border/50 flex flex-col glass">
         <SectionHeader
           label="Streams"
           count={streams?.length}
@@ -80,7 +80,7 @@ export function StreamExplorer() {
             value={filter}
             onChange={e => setFilter(e.target.value)}
             placeholder="Filter streams..."
-            className="w-full bg-bg-surface border border-bg-border rounded px-2 py-1 text-xs font-mono text-text-primary placeholder-text-muted outline-none focus:border-accent-cyan/50"
+            className="input-base"
           />
         </div>
 
@@ -704,5 +704,5 @@ function FormLabel({ children, required }: { children: React.ReactNode; required
   )
 }
 
-const inputClass = 'w-full bg-bg-surface border border-bg-border rounded px-3 py-2 text-xs font-mono text-text-primary placeholder-text-muted outline-none focus:border-accent-cyan/50 transition-colors'
-const selectClass = 'w-full bg-bg-surface border border-bg-border rounded px-3 py-2 text-xs font-mono text-text-secondary outline-none focus:border-accent-cyan/50 transition-colors'
+const inputClass  = 'input-base'
+const selectClass = 'select-base'

@@ -8,6 +8,10 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
+    // Force Vite to always use the single hoisted copy of these packages.
+    // Without this, @react-three/fiber's nested scheduler@0.21.0 conflicts
+    // with React 18's scheduler@0.23.x causing "doesn't provide export" crashes.
+    dedupe: ['react', 'react-dom', 'scheduler', 'three', '@react-three/fiber', '@react-three/drei'],
   },
   server: {
     port: 5173,
@@ -28,13 +32,18 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          vendor: ['react', 'react-dom'],
-          flow: ['reactflow'],
-          editor: ['@monaco-editor/react'],
-          charts: ['recharts'],
-          motion: ['framer-motion'],
+          vendor:  ['react', 'react-dom'],
+          three:   ['three', '@react-three/fiber', '@react-three/drei'],
+          gsap:    ['gsap'],
+          editor:  ['@monaco-editor/react'],
+          charts:  ['recharts'],
+          flow:    ['reactflow'],
         },
       },
     },
+  },
+  optimizeDeps: {
+    include: ['gsap'],
+    exclude: ['@react-three/fiber', '@react-three/drei', 'three'],
   },
 })

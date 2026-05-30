@@ -49,6 +49,16 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Verify lockfile in sync
+        run: |
+          npm install --package-lock-only
+          git diff --exit-code package-lock.json || {
+            echo ""
+            echo "::error::package-lock.json is out of sync with package.json."
+            echo "::error::Run 'cd frontend && npm install' locally and commit the updated lockfile."
+            exit 1
+          }
+
       - name: Install
         run: npm ci
 

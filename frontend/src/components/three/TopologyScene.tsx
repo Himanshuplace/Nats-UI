@@ -1,160 +1,100 @@
 /**
- * TopologyScene — "Orbital Mesh" visualization.
+ * TopologyScene — "Hex Grid" visualization.
  *
- * Each NATS node is an atom: a glowing nucleus with electrons orbiting
- * on tilted ellipses (simulated 3D projection). Connections are animated
- * bezier channels. Messages are comets with fading light trails.
- * Arrival at a node triggers an expanding ripple ring.
+ * Nodes are flat-top hexagonal tiles on a tiled hex-grid background.
+ * Connections are straight glowing lines with animated dash flow and
+ * fast-moving message particles. Cyan / deep-blue color palette.
  *
- * Pure Canvas 2D — no Three.js, no WebGL, no external deps.
+ * Pure Canvas 2D — zero external dependencies.
  */
 import { useEffect, useRef } from 'react'
 import type { NodeInfo } from '@/types'
 
 export interface TopologySceneProps {
-  nodes: NodeInfo[]
+  nodes:           NodeInfo[]
   totalThroughput: number
 }
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
-interface Electron {
-  angle: number
-  speedSign: number   // +1 or -1 — direction
-  orbitalSpeed: number
-  a: number           // semi-major axis
-  b: number           // semi-minor axis
-  tilt: number        // ellipse rotation in radians
-  dotSize: number
-}
+const BG         = '#04090f'
+const C_CYAN     : RGB = [6,   182, 212]   // #06b6d4  healthy
+const C_AMBER    : RGB = [245, 158,  11]   // #f59e0b  degraded
+const C_RED      : RGB = [239,  68,  68]   // #ef4444  critical
+const C_WHITE    : RGB = [255, 255, 255]
+const HEX_R      = 50      // node hex radius (center → vertex)
+const BG_HEX_R   = 16      // background tiling hex radius
+const DASH_SPEED = 55      // px/s for flowing dashes
 
-interface NodeState {
-  electrons: Electron[]
-  phase: number       // heartbeat oscillator
-  ripple: number      // expanding ring radius (0 = idle)
-  rippleAlpha: number
-}
-
-interface Comet {
-  from: number
-  to: number
-  t: number
-  speed: number
-  trail: Array<[number, number]>
-}
+type RGB = readonly [number, number, number]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function healthRGB(health: string): [number, number, number] {
-  if (health === 'critical') return [255,  64,  64]
-  if (health === 'degraded') return [255, 204,   0]
-  return [168, 255, 60]
+function healthColor(h: string): RGB {
+  if (h === 'critical') return C_RED
+  if (h === 'degraded') return C_AMBER
+  return C_CYAN
 }
 
-function rgb(c: [number, number, number], a: number) {
-  return `rgba(${c[0]},${c[1]},${c[2]},${a})`
+function rgba([r, g, b]: RGB, a: number) {
+  return `rgba(${r},${g},${b},${a.toFixed(3)})`
 }
 
-// Point on a tilted ellipse (3D-projected orbital)
-function orbitPos(
-  cx: number, cy: number,
-  a: number, b: number,
-  tilt: number, angle: number,
-): [number, number] {
-  const ex = a * Math.cos(angle)
-  const ey = b * Math.sin(angle)
-  return [
-    cx + ex * Math.cos(tilt) - ey * Math.sin(tilt),
-    cy + ex * Math.sin(tilt) + ey * Math.cos(tilt),
-  ]
-}
-
-// Quadratic bezier point
-function qbez(
-  x0: number, y0: number,
-  cpx: number, cpy: number,
-  x1: number, y1: number,
-  t: number,
-): [number, number] {
-  const m = 1 - t
-  return [
-    m * m * x0 + 2 * m * t * cpx + t * t * x1,
-    m * m * y0 + 2 * m * t * cpy + t * t * y1,
-  ]
-}
-
-// Rounded rectangle path helper (cross-browser)
-function roundRect(
+/** Flat-top hexagon path (rotation = 0 → vertex at right, Math.PI/6 → vertex at top-right) */
+function hexPath(
   ctx: CanvasRenderingContext2D,
-  x: number, y: number, w: number, h: number, r: number,
+  cx: number, cy: number,
+  radius: number,
+  rotation = Math.PI / 6,  // flat-top
 ) {
   ctx.beginPath()
-  ctx.moveTo(x + r, y)
-  ctx.lineTo(x + w - r, y)
-  ctx.arcTo(x + w, y,     x + w, y + r,     r)
-  ctx.lineTo(x + w, y + h - r)
-  ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
-  ctx.lineTo(x + r, y + h)
-  ctx.arcTo(x,     y + h, x,     y + h - r, r)
-  ctx.lineTo(x,     y + r)
-  ctx.arcTo(x,     y,     x + r, y,         r)
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI / 3) * i + rotation
+    const x = cx + radius * Math.cos(a)
+    const y = cy + radius * Math.sin(a)
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
+  }
   ctx.closePath()
 }
 
-// Place nodes in a circle; single node is centered
-function layoutNodes(n: number, w: number, h: number): [number, number][] {
+function layoutNodes(n: number, W: number, H: number): [number, number][] {
   if (n === 0) return []
-  if (n === 1) return [[w / 2, h / 2]]
-  const r = Math.min(w, h) * 0.28
+  if (n === 1) return [[W / 2, H / 2]]
+  const r = Math.min(W, H) * 0.30
   return Array.from({ length: n }, (_, i) => {
     const a = (i / n) * Math.PI * 2 - Math.PI / 2
-    return [w / 2 + Math.cos(a) * r, h / 2 + Math.sin(a) * r]
+    return [W / 2 + Math.cos(a) * r, H / 2 + Math.sin(a) * r]
   })
 }
 
-function makeElectrons(): Electron[] {
-  // Fixed 3-electron structure; speed + opacity scale with throughput at draw time
-  return [
-    { angle: 0,              speedSign:  1, orbitalSpeed: 1.8, a: 22, b: 9,  tilt: 0.3,  dotSize: 3.0 },
-    { angle: Math.PI * 0.6,  speedSign: -1, orbitalSpeed: 1.2, a: 30, b: 12, tilt: 1.4,  dotSize: 2.4 },
-    { angle: Math.PI * 1.3,  speedSign:  1, orbitalSpeed: 0.9, a: 38, b: 14, tilt: 2.3,  dotSize: 1.8 },
-  ]
+// ── Particle types ────────────────────────────────────────────────────────────
+
+interface Particle {
+  from:    number
+  to:      number
+  t:       number       // 0 → 1 along the line
+  speed:   number       // fraction per second
+  trail:   [number, number][]
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function TopologyScene({ nodes, totalThroughput }: TopologySceneProps) {
-  const canvasRef      = useRef<HTMLCanvasElement>(null)
-  const throughputRef  = useRef(totalThroughput)
-  const nodesRef       = useRef(nodes)
-  const nodeStates     = useRef<NodeState[]>([])
-  const comets         = useRef<Comet[]>([])
-  const dashOffset     = useRef(0)
-  const lastTs         = useRef(0)
+  const canvasRef     = useRef<HTMLCanvasElement>(null)
+  const nodesRef      = useRef(nodes)
+  const tpRef         = useRef(totalThroughput)
+  const particles     = useRef<Particle[]>([])
+  const dashOffset    = useRef(0)
+  const pulsePhase    = useRef<number[]>([])
+  const lastTs        = useRef(0)
 
-  // Keep refs current on every render (no effect re-run needed)
-  throughputRef.current = totalThroughput
-  nodesRef.current      = nodes
+  nodesRef.current = nodes
+  tpRef.current    = totalThroughput
 
-  // Re-init only when the number of nodes changes
+  // Re-init particles when topology changes
   useEffect(() => {
-    nodeStates.current = nodes.map(() => ({
-      electrons:   makeElectrons(),
-      phase:       Math.random() * Math.PI * 2,
-      ripple:      0,
-      rippleAlpha: 0,
-    }))
-
-    const spawnComets = (n: NodeInfo[]) => {
-      if (n.length < 2) { comets.current = []; return }
-      const base = 4
-      comets.current = Array.from({ length: base }, (_, i) => {
-        const from = i % n.length
-        const to   = (i + 1) % n.length
-        return { from, to, t: i / base, speed: 0.35 + Math.random() * 0.3, trail: [] }
-      })
-    }
-    spawnComets(nodes)
+    pulsePhase.current = nodes.map(() => Math.random() * Math.PI * 2)
+    particles.current  = []
   }, [nodes.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -173,302 +113,264 @@ export function TopologyScene({ nodes, totalThroughput }: TopologySceneProps) {
     let raf: number
 
     const tick = (ts: number) => {
-      const dt   = Math.min((ts - (lastTs.current || ts)) / 1000, 0.05)
+      const dt  = Math.min((ts - (lastTs.current || ts)) / 1000, 0.05)
       lastTs.current = ts
 
-      const W    = canvas.offsetWidth
-      const H    = canvas.offsetHeight
-      const dpr  = devicePixelRatio
-      const ns_  = nodesRef.current
-      const tp   = Math.max(throughputRef.current, 0)
-
-      // Dynamic comet count based on throughput
-      const targetCometCount = ns_.length < 2 ? 0 : Math.min(Math.max(Math.floor(tp / 8) + 3, 3), 18)
-      while (comets.current.length < targetCometCount && ns_.length >= 2) {
-        const from = Math.floor(Math.random() * ns_.length)
-        let   to   = Math.floor(Math.random() * ns_.length)
-        while (to === from) to = Math.floor(Math.random() * ns_.length)
-        comets.current.push({ from, to, t: Math.random(), speed: 0.35 + Math.random() * 0.35, trail: [] })
-      }
-      if (comets.current.length > targetCometCount) {
-        comets.current.length = targetCometCount
-      }
+      const W   = canvas.offsetWidth
+      const H   = canvas.offsetHeight
+      const dpr = devicePixelRatio
+      const ns  = nodesRef.current
+      const tp  = Math.max(tpRef.current, 0)
 
       ctx.save()
       ctx.scale(dpr, dpr)
       ctx.clearRect(0, 0, W, H)
 
-      const positions = layoutNodes(ns_.length, W, H)
-      dashOffset.current -= dt * 55
+      // ── Background hex grid ───────────────────────────────────────────────
+      const bh  = BG_HEX_R
+      const col = Math.sqrt(3) * bh
+      const row = 1.5 * bh
 
-      // ── Dot-grid background ───────────────────────────────────────────────
-      const gs = 30
-      ctx.fillStyle = 'rgba(255,255,255,0.02)'
-      for (let x = gs / 2; x < W; x += gs) {
-        for (let y = gs / 2; y < H; y += gs) {
-          ctx.beginPath()
-          ctx.arc(x, y, 1, 0, Math.PI * 2)
-          ctx.fill()
+      ctx.strokeStyle = rgba(C_CYAN, 0.04)
+      ctx.lineWidth   = 0.5
+      let r = -1
+      while (r * row < H + bh * 2) {
+        let c = -1
+        const offset = r % 2 === 0 ? 0 : col / 2
+        while (c * col + offset < W + bh * 2) {
+          hexPath(ctx, c * col + offset, r * row, bh - 1)
+          ctx.stroke()
+          c++
         }
+        r++
       }
 
-      // ── Connections ───────────────────────────────────────────────────────
+      const positions = layoutNodes(ns.length, W, H)
+
+      // ── Manage particle count ─────────────────────────────────────────────
+      if (ns.length >= 2) {
+        const target = Math.min(Math.max(Math.floor(tp / 5) + 2, 2), 20)
+        while (particles.current.length < target) {
+          const from = Math.floor(Math.random() * ns.length)
+          let   to   = Math.floor(Math.random() * ns.length)
+          while (to === from) to = Math.floor(Math.random() * ns.length)
+          particles.current.push({
+            from, to,
+            t:     Math.random(),
+            speed: 0.40 + Math.random() * 0.35,
+            trail: [],
+          })
+        }
+        if (particles.current.length > target + 4)
+          particles.current.length = target + 4
+      } else {
+        particles.current = []
+      }
+
+      // ── Connection lines ──────────────────────────────────────────────────
+      dashOffset.current -= dt * DASH_SPEED
+
       for (let i = 0; i < positions.length; i++) {
         for (let j = i + 1; j < positions.length; j++) {
           const [x1, y1] = positions[i]
           const [x2, y2] = positions[j]
-          const dx = x2 - x1, dy = y2 - y1
-          const len = Math.sqrt(dx * dx + dy * dy) || 1
-          const cpx = (x1 + x2) / 2 - (dy / len) * 35
-          const cpy = (y1 + y2) / 2 + (dx / len) * 35
 
-          const cA = healthRGB(ns_[i].health)
-          const cB = healthRGB(ns_[j].health)
+          const cA = healthColor(ns[i].health)
+          const cB = healthColor(ns[j].health)
 
-          // Soft glow beneath the line
+          // Outer glow
           ctx.beginPath()
           ctx.moveTo(x1, y1)
-          ctx.quadraticCurveTo(cpx, cpy, x2, y2)
-          ctx.strokeStyle = rgb(cA, 0.07)
-          ctx.lineWidth = 10
+          ctx.lineTo(x2, y2)
+          ctx.strokeStyle = rgba(cA, 0.08)
+          ctx.lineWidth   = 7
           ctx.setLineDash([])
           ctx.stroke()
 
-          // Animated flowing dashes — the "data channel"
-          const grad = ctx.createLinearGradient(x1, y1, x2, y2)
-          grad.addColorStop(0, rgb(cA, 0.55))
-          grad.addColorStop(1, rgb(cB, 0.55))
+          // Inner glow
           ctx.beginPath()
           ctx.moveTo(x1, y1)
-          ctx.quadraticCurveTo(cpx, cpy, x2, y2)
-          ctx.strokeStyle = grad
-          ctx.lineWidth = 1.2
-          ctx.setLineDash([5, 12])
+          ctx.lineTo(x2, y2)
+          ctx.strokeStyle = rgba(cA, 0.15)
+          ctx.lineWidth   = 2
+          ctx.stroke()
+
+          // Animated dash flow
+          const grad = ctx.createLinearGradient(x1, y1, x2, y2)
+          grad.addColorStop(0, rgba(cA, 0.6))
+          grad.addColorStop(1, rgba(cB, 0.6))
+          ctx.beginPath()
+          ctx.moveTo(x1, y1)
+          ctx.lineTo(x2, y2)
+          ctx.strokeStyle    = grad
+          ctx.lineWidth      = 1
+          ctx.setLineDash([6, 10])
           ctx.lineDashOffset = dashOffset.current
           ctx.stroke()
           ctx.setLineDash([])
         }
       }
 
-      // ── Comets (message packets) ──────────────────────────────────────────
-      const cometSpeed = 1 + tp * 0.008   // faster with more throughput
-      for (const c of comets.current) {
-        c.t += c.speed * cometSpeed * dt
-        if (c.t >= 1) {
-          c.t = 0
-          c.trail = []
-          // Trigger arrival ripple
-          const ns = nodeStates.current[c.to]
-          if (ns) { ns.ripple = 15; ns.rippleAlpha = 0.8 }
-          // Pick a new random destination
-          const from = Math.floor(Math.random() * ns_.length)
-          let   to   = Math.floor(Math.random() * ns_.length)
-          while (to === from) to = Math.floor(Math.random() * ns_.length)
-          c.from = from; c.to = to
+      // ── Particles ─────────────────────────────────────────────────────────
+      const speedMul = 1 + tp * 0.012
+
+      for (const p of particles.current) {
+        p.t += p.speed * speedMul * dt
+        if (p.t >= 1) {
+          p.t    = 0
+          p.trail = []
+          const from = Math.floor(Math.random() * ns.length)
+          let   to   = Math.floor(Math.random() * ns.length)
+          while (to === from) to = Math.floor(Math.random() * ns.length)
+          p.from = from; p.to = to
         }
 
-        const p0 = positions[c.from], p1 = positions[c.to]
+        const p0 = positions[p.from]
+        const p1 = positions[p.to]
         if (!p0 || !p1) continue
 
-        const dx = p1[0] - p0[0], dy = p1[1] - p0[1]
-        const len = Math.sqrt(dx * dx + dy * dy) || 1
-        const cpx = (p0[0] + p1[0]) / 2 - (dy / len) * 35
-        const cpy = (p0[1] + p1[1]) / 2 + (dx / len) * 35
+        const px = p0[0] + (p1[0] - p0[0]) * p.t
+        const py = p0[1] + (p1[1] - p0[1]) * p.t
 
-        const [cx, cy] = qbez(p0[0], p0[1], cpx, cpy, p1[0], p1[1], c.t)
-        c.trail.push([cx, cy])
-        if (c.trail.length > 16) c.trail.shift()
+        p.trail.push([px, py])
+        if (p.trail.length > 18) p.trail.shift()
 
-        const colR = healthRGB(ns_[c.from]?.health ?? 'ok')
+        const col = healthColor(ns[p.from]?.health ?? 'ok')
 
-        // Light trail
-        for (let k = 0; k < c.trail.length - 1; k++) {
-          const a  = (k / c.trail.length) * 0.75
-          const lw = 2.5 * (k / c.trail.length)
+        // Draw trail
+        for (let k = 0; k < p.trail.length - 1; k++) {
+          const alpha = (k / p.trail.length) * 0.65
           ctx.beginPath()
-          ctx.moveTo(c.trail[k][0], c.trail[k][1])
-          ctx.lineTo(c.trail[k + 1][0], c.trail[k + 1][1])
-          ctx.strokeStyle = rgb(colR, a)
-          ctx.lineWidth = lw
+          ctx.moveTo(p.trail[k][0], p.trail[k][1])
+          ctx.lineTo(p.trail[k + 1][0], p.trail[k + 1][1])
+          ctx.strokeStyle = rgba(col, alpha)
+          ctx.lineWidth   = 2.5 * (k / p.trail.length)
           ctx.stroke()
         }
 
-        // Comet head glow
-        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 9)
-        g.addColorStop(0, rgb(colR, 0.85))
-        g.addColorStop(1, rgb(colR, 0))
+        // Head glow
+        const g = ctx.createRadialGradient(px, py, 0, px, py, 8)
+        g.addColorStop(0, rgba(col, 0.85))
+        g.addColorStop(1, rgba(col, 0))
         ctx.fillStyle = g
         ctx.beginPath()
-        ctx.arc(cx, cy, 9, 0, Math.PI * 2)
+        ctx.arc(px, py, 8, 0, Math.PI * 2)
         ctx.fill()
 
-        // Bright core dot
-        ctx.fillStyle = rgb([255, 255, 255], 0.95)
+        // Bright core
+        ctx.fillStyle = rgba(C_WHITE, 0.95)
         ctx.beginPath()
-        ctx.arc(cx, cy, 2.5, 0, Math.PI * 2)
+        ctx.arc(px, py, 2.5, 0, Math.PI * 2)
         ctx.fill()
       }
 
-      // ── Nodes ─────────────────────────────────────────────────────────────
-      const speedMul = 1 + tp * 0.015   // electrons spin faster with throughput
-      const minElectronAlpha = 0.4      // always at least slightly visible
-
-      for (let i = 0; i < ns_.length; i++) {
-        const node = ns_[i]
+      // ── Hex nodes ─────────────────────────────────────────────────────────
+      for (let i = 0; i < ns.length; i++) {
+        const node = ns[i]
         const pos  = positions[i]
-        const ns   = nodeStates.current[i]
-        if (!pos || !ns) continue
+        if (!pos) continue
         const [x, y] = pos
-        const col = healthRGB(node.health)
 
-        // Animate state
-        ns.phase += dt * 2.8
-        if (ns.ripple > 0) {
-          ns.ripple      += dt * 90
-          ns.rippleAlpha -= dt * 2.2
-          if (ns.rippleAlpha <= 0) { ns.ripple = 0; ns.rippleAlpha = 0 }
-        }
+        // Advance pulse
+        pulsePhase.current[i] = (pulsePhase.current[i] ?? 0) + dt * 1.8
+        const pulse = 1 + Math.sin(pulsePhase.current[i]) * 0.05
 
-        // Arrival ripple
-        if (ns.ripple > 0) {
-          ctx.beginPath()
-          ctx.arc(x, y, ns.ripple, 0, Math.PI * 2)
-          ctx.strokeStyle = rgb(col, ns.rippleAlpha * 0.8)
-          ctx.lineWidth = 1.5
-          ctx.stroke()
-        }
+        const col    = healthColor(node.health)
+        const alpha  = 0.55 + Math.sin(pulsePhase.current[i]) * 0.18
 
-        // Ambient node glow
-        const glowR = 65
-        const glow  = ctx.createRadialGradient(x, y, 0, x, y, glowR)
-        glow.addColorStop(0,   rgb(col, 0.14))
-        glow.addColorStop(0.5, rgb(col, 0.05))
-        glow.addColorStop(1,   rgb(col, 0))
-        ctx.fillStyle = glow
-        ctx.beginPath()
-        ctx.arc(x, y, glowR, 0, Math.PI * 2)
+        // ── Outer ambient hex glow ────────────────────────────────────────
+        ctx.save()
+        ctx.shadowColor = rgba(col, 0.4)
+        ctx.shadowBlur  = 24
+        hexPath(ctx, x, y, HEX_R * 1.25 * pulse)
+        ctx.strokeStyle = rgba(col, 0.12)
+        ctx.lineWidth   = 1
+        ctx.stroke()
+        ctx.restore()
+
+        // ── Hex fill ──────────────────────────────────────────────────────
+        hexPath(ctx, x, y, HEX_R * pulse)
+        const fill = ctx.createRadialGradient(x, y, 0, x, y, HEX_R)
+        fill.addColorStop(0,   rgba(col, 0.14))
+        fill.addColorStop(0.6, rgba(col, 0.07))
+        fill.addColorStop(1,   rgba(col, 0.02))
+        ctx.fillStyle = fill
         ctx.fill()
 
-        // Orbital track guidelines + electrons
-        ns.electrons.forEach((e, ei) => {
-          e.angle += e.speedSign * e.orbitalSpeed * speedMul * dt
+        // ── Hex border ────────────────────────────────────────────────────
+        ctx.save()
+        ctx.shadowColor = rgba(col, 0.6)
+        ctx.shadowBlur  = 10
+        hexPath(ctx, x, y, HEX_R * pulse)
+        ctx.strokeStyle = rgba(col, alpha)
+        ctx.lineWidth   = 1.5
+        ctx.stroke()
+        ctx.restore()
 
-          // Track guideline (faint ellipse)
-          ctx.save()
-          ctx.translate(x, y)
-          ctx.rotate(e.tilt)
-          ctx.strokeStyle = rgb(col, 0.07 + ei * 0.01)
-          ctx.lineWidth = 0.5
+        // ── Corner accent dots ────────────────────────────────────────────
+        for (let v = 0; v < 6; v++) {
+          const a  = (Math.PI / 3) * v + Math.PI / 6
+          const vx = x + HEX_R * pulse * Math.cos(a)
+          const vy = y + HEX_R * pulse * Math.sin(a)
+          ctx.fillStyle = rgba(col, 0.7)
           ctx.beginPath()
-          ctx.ellipse(0, 0, e.a, e.b, 0, 0, Math.PI * 2)
-          ctx.stroke()
-          ctx.restore()
-
-          // Electron trail (backward angle steps)
-          const TRAIL = 10
-          for (let k = TRAIL; k >= 0; k--) {
-            const pastAngle = e.angle - e.speedSign * e.orbitalSpeed * speedMul * dt * k * 1.6
-            const [ex, ey]  = orbitPos(x, y, e.a, e.b, e.tilt, pastAngle)
-            const alpha = (1 - k / TRAIL) * (minElectronAlpha + tp * 0.005)
-            const size  = e.dotSize * (1 - k / TRAIL * 0.6)
-            ctx.fillStyle = rgb(col, alpha)
-            ctx.beginPath()
-            ctx.arc(ex, ey, size, 0, Math.PI * 2)
-            ctx.fill()
-          }
-
-          // Electron head: glow + bright core
-          const [ex, ey] = orbitPos(x, y, e.a, e.b, e.tilt, e.angle)
-          const eg = ctx.createRadialGradient(ex, ey, 0, ex, ey, e.dotSize * 3)
-          eg.addColorStop(0, rgb(col, 0.9))
-          eg.addColorStop(1, rgb(col, 0))
-          ctx.fillStyle = eg
-          ctx.beginPath()
-          ctx.arc(ex, ey, e.dotSize * 3, 0, Math.PI * 2)
+          ctx.arc(vx, vy, 2, 0, Math.PI * 2)
           ctx.fill()
-
-          ctx.fillStyle = 'rgba(255,255,255,0.95)'
-          ctx.beginPath()
-          ctx.arc(ex, ey, e.dotSize * 0.65, 0, Math.PI * 2)
-          ctx.fill()
-        })
-
-        // Pulsing nucleus
-        const pulse   = 1 + Math.sin(ns.phase) * 0.1
-        const coreRad = 13 * pulse
-        const coreG   = ctx.createRadialGradient(x, y, 0, x, y, coreRad)
-        coreG.addColorStop(0,   'rgba(255,255,255,0.98)')
-        coreG.addColorStop(0.35, rgb(col, 0.9))
-        coreG.addColorStop(1,    rgb(col, 0.25))
-        ctx.fillStyle = coreG
-        ctx.beginPath()
-        ctx.arc(x, y, coreRad, 0, Math.PI * 2)
-        ctx.fill()
-
-        // Nucleus center dot
-        ctx.fillStyle = 'rgba(255,255,255,1)'
-        ctx.beginPath()
-        ctx.arc(x, y, 3.5, 0, Math.PI * 2)
-        ctx.fill()
-
-        // Leader: outer halo ring
-        if (node.role === 'leader') {
-          ctx.beginPath()
-          ctx.arc(x, y, 52 * pulse, 0, Math.PI * 2)
-          ctx.strokeStyle = rgb(col, 0.25)
-          ctx.lineWidth = 1
-          ctx.setLineDash([3, 8])
-          ctx.stroke()
-          ctx.setLineDash([])
         }
 
-        // ── Labels ────────────────────────────────────────────────────────
+        // ── Inner divider line ────────────────────────────────────────────
+        ctx.beginPath()
+        ctx.moveTo(x - HEX_R * 0.55, y - 6)
+        ctx.lineTo(x + HEX_R * 0.55, y - 6)
+        ctx.strokeStyle = rgba(col, 0.18)
+        ctx.lineWidth   = 0.8
+        ctx.stroke()
 
+        // ── Text content ──────────────────────────────────────────────────
         ctx.textAlign    = 'center'
         ctx.textBaseline = 'middle'
 
         // Node name
-        ctx.fillStyle = 'rgba(255,255,255,0.9)'
+        ctx.fillStyle = rgba(C_WHITE, 0.92)
         ctx.font      = '600 11px "JetBrains Mono", ui-monospace, monospace'
-        ctx.fillText(node.name, x, y - 68)
+        ctx.fillText(node.name, x, y - 17)
 
-        // Version tag (subtle)
-        if (node.version) {
-          ctx.fillStyle = 'rgba(161,161,170,0.5)'
-          ctx.font      = '9px "JetBrains Mono", ui-monospace, monospace'
-          ctx.fillText(`v${node.version}`, x, y - 56)
+        // Role badge (leader only)
+        if (node.role === 'leader') {
+          ctx.fillStyle = rgba(col, 0.22)
+          ctx.beginPath()
+          ctx.roundRect(x - 18, y - 9, 36, 13, 3)
+          ctx.fill()
+          ctx.fillStyle = rgba(col, 0.85)
+          ctx.font      = '7px "JetBrains Mono", ui-monospace, monospace'
+          ctx.fillText('LEADER', x, y - 2)
         }
 
-        // Stats row
-        ctx.fillStyle = rgb(col, 0.65)
+        // Clients stat
+        ctx.fillStyle = rgba(C_WHITE, 0.5)
         ctx.font      = '9px "JetBrains Mono", ui-monospace, monospace'
-        ctx.fillText(`${node.clients} cli  ·  ${node.inMsgs}/s`, x, y + 68)
+        ctx.fillText(`${node.clients} clients`, x, y + 8)
 
-        // Health pill
-        const bw = 54
-        const bh = 15
-        const bx = x - bw / 2
-        const by = y + 75
-        roundRect(ctx, bx, by, bw, bh, 4)
-        ctx.fillStyle = rgb(col, 0.13)
+        // Msgs/s stat
+        ctx.fillStyle = rgba(col, 0.8)
+        ctx.font      = '600 10px "JetBrains Mono", ui-monospace, monospace'
+        ctx.fillText(`${node.inMsgs}/s`, x, y + 22)
+
+        // Health indicator dot at bottom of hex
+        ctx.fillStyle = rgba(col, 0.9)
+        ctx.beginPath()
+        ctx.arc(x, y + 33, 3.5, 0, Math.PI * 2)
         ctx.fill()
-        roundRect(ctx, bx, by, bw, bh, 4)
-        ctx.strokeStyle = rgb(col, 0.25)
-        ctx.lineWidth   = 0.8
-        ctx.stroke()
-        ctx.fillStyle = rgb(col, 0.8)
-        ctx.font      = '8px "JetBrains Mono", ui-monospace, monospace'
-        ctx.fillText(node.health.toUpperCase(), x, by + bh / 2)
 
         ctx.textBaseline = 'alphabetic'
       }
 
       // ── Empty state ───────────────────────────────────────────────────────
-      if (ns_.length === 0) {
+      if (ns.length === 0) {
         ctx.textAlign  = 'center'
-        ctx.fillStyle  = 'rgba(161,161,170,0.4)'
-        ctx.font       = '13px "JetBrains Mono", ui-monospace, monospace'
-        ctx.fillText('No nodes', W / 2, H / 2)
+        ctx.fillStyle  = rgba(C_CYAN, 0.25)
+        ctx.font       = '12px "JetBrains Mono", ui-monospace, monospace'
+        ctx.fillText('No nodes connected', W / 2, H / 2)
       }
 
       ctx.restore()
@@ -476,23 +378,19 @@ export function TopologyScene({ nodes, totalThroughput }: TopologySceneProps) {
     }
 
     raf = requestAnimationFrame(tick)
-
-    return () => {
-      cancelAnimationFrame(raf)
-      observer.disconnect()
-    }
-  }, []) // canvas lifecycle only — reads live data via refs
+    return () => { cancelAnimationFrame(raf); observer.disconnect() }
+  }, [])
 
   return (
     <canvas
       ref={canvasRef}
       style={{
         position: 'absolute',
-        inset: 0,
-        width: '100%',
-        height: '100%',
-        display: 'block',
-        background: '#09090b',
+        inset:    0,
+        width:    '100%',
+        height:   '100%',
+        display:  'block',
+        background: BG,
       }}
     />
   )

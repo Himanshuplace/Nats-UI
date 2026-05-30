@@ -4,7 +4,7 @@
  * NOT live/streaming. User picks stream + optional subject filter + start seq,
  * clicks Fetch, sees paginated results. Each row is expandable for full payload.
  */
-import { useState } from 'react'
+import { useState, Fragment } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Search, ChevronDown, ChevronRight, ChevronLeft,
@@ -94,23 +94,27 @@ export function MessageBrowser() {
 
   if (!clusterId) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-bg-base">
-        <EmptyState icon={<DatabaseZap className="w-8 h-8" />} title="No cluster connected" description="Connect to a NATS cluster first" />
+      <div className="flex-1 flex items-center justify-center">
+        <div className="glass rounded-xl p-8 shadow-glass text-center space-y-2">
+          <DatabaseZap className="w-8 h-8 text-text-muted mx-auto mb-3" />
+          <p className="text-sm font-mono text-text-secondary">No cluster connected</p>
+          <p className="text-xs font-mono text-text-muted">Connect to a NATS cluster via Settings first</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col h-full bg-bg-base">
+    <div className="flex flex-col h-full">
       {/* Query bar */}
-      <div className="flex flex-wrap items-end gap-3 px-4 py-3 border-b border-bg-border bg-bg-elevated flex-shrink-0">
+      <div className="flex flex-wrap items-end gap-3 px-4 py-3 border-b border-bg-border/50 glass flex-shrink-0">
         {/* Stream */}
         <div className="flex flex-col gap-1">
           <label className="text-2xs font-mono text-text-muted uppercase tracking-widest">Stream</label>
           <select
             value={selectedStream}
             onChange={e => { setSelectedStream(e.target.value); setHistory([]); setNextSeq(null); setFetchKey(0) }}
-            className="bg-bg-surface border border-bg-border text-text-secondary text-xs font-mono rounded px-2 py-1.5 outline-none focus:border-accent-cyan/50 min-w-[160px]"
+            className="select-base min-w-[160px]"
           >
             <option value="">— select —</option>
             {streams.map(s => <option key={s.config.name} value={s.config.name}>{s.config.name}</option>)}
@@ -120,7 +124,7 @@ export function MessageBrowser() {
         {/* Subject filter */}
         <div className="flex flex-col gap-1">
           <label className="text-2xs font-mono text-text-muted uppercase tracking-widest">Subject Filter</label>
-          <div className="flex items-center gap-1 bg-bg-surface border border-bg-border rounded px-2 py-1.5">
+          <div className="flex items-center gap-1 input-base px-2 py-1.5">
             <Search className="w-3 h-3 text-text-muted flex-shrink-0" />
             <input
               type="text"
@@ -143,7 +147,7 @@ export function MessageBrowser() {
             value={startSeq}
             onChange={e => setStartSeq(e.target.value)}
             placeholder="1  (default: first)"
-            className="bg-bg-surface border border-bg-border text-text-secondary text-xs font-mono rounded px-2 py-1.5 outline-none focus:border-accent-cyan/50 w-36"
+            className="input-base w-36"
             onKeyDown={e => { if (e.key === 'Enter' && selectedStream) handleFetch() }}
           />
         </div>
@@ -191,7 +195,7 @@ export function MessageBrowser() {
         {fetchKey > 0 && !isFetching && !isError && messages && (
           <>
             {/* Column headers */}
-            <div className="flex items-center px-4 py-1 border-b border-bg-border bg-bg-elevated text-2xs font-mono text-text-muted flex-shrink-0 select-none">
+            <div className="flex items-center px-4 py-1 border-b border-bg-border/50 glass-sm text-2xs font-mono text-text-muted flex-shrink-0 select-none">
               <span className="w-8" />
               <span className="w-20 flex-shrink-0 text-center">SEQ</span>
               <span className="w-44 flex-shrink-0">TIMESTAMP</span>
@@ -219,7 +223,7 @@ export function MessageBrowser() {
 
             {/* Pagination */}
             {(hasPrevPage || hasNextPage) && (
-              <div className="flex items-center justify-between px-4 py-2 border-t border-bg-border bg-bg-elevated flex-shrink-0">
+              <div className="flex items-center justify-between px-4 py-2 border-t border-bg-border/50 glass flex-shrink-0">
                 <Button variant="ghost" size="xs" onClick={handlePrevPage} disabled={!hasPrevPage}>
                   <ChevronLeft className="w-3 h-3" /> Prev
                 </Button>
@@ -275,10 +279,10 @@ function StoredMessageRow({ msg, expanded, onToggle }: {
               <p className="text-2xs font-mono text-text-muted uppercase tracking-widest mb-1">Headers</p>
               <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5">
                 {Object.entries(msg.headers!).map(([k, v]) => (
-                  <>
-                    <span key={`k-${k}`} className="text-2xs font-mono text-accent-yellow">{k}</span>
-                    <span key={`v-${k}`} className="text-2xs font-mono text-text-secondary break-all">{v}</span>
-                  </>
+                  <Fragment key={k}>
+                    <span className="text-2xs font-mono text-accent-yellow">{k}</span>
+                    <span className="text-2xs font-mono text-text-secondary break-all">{v}</span>
+                  </Fragment>
                 ))}
               </div>
             </div>

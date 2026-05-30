@@ -32,21 +32,21 @@ export function AccountsView() {
 
   if (activeClusters.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-bg-base">
-        <EmptyState
-          icon={<Shield className="w-10 h-10" />}
-          title="No cluster connected"
-          description="Connect to a NATS server in Settings to view accounts and users"
-        />
+      <div className="flex-1 flex items-center justify-center">
+        <div className="glass rounded-xl p-8 shadow-glass text-center space-y-2">
+          <Shield className="w-8 h-8 text-text-muted mx-auto mb-3" />
+          <p className="text-sm font-mono text-text-secondary">No cluster connected</p>
+          <p className="text-xs font-mono text-text-muted">Connect to a NATS server in Settings to view accounts and users</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="flex h-full bg-bg-base overflow-hidden">
+    <div className="flex h-full overflow-hidden">
       {/* Left: accounts list */}
-      <div className="w-80 flex-shrink-0 border-r border-bg-border flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-bg-border">
+      <div className="w-80 flex-shrink-0 border-r border-bg-border/50 flex flex-col glass">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-bg-border/50">
           <div className="flex items-center gap-2">
             <Shield className="w-4 h-4 text-accent-cyan" />
             <span className="text-xs font-mono font-semibold text-text-primary uppercase tracking-widest">
@@ -242,7 +242,7 @@ function ConnectionTable({ connections }: { connections: NATSUser[] }) {
   return (
     <div className="font-mono">
       {/* Header */}
-      <div className="flex items-center gap-0 px-4 py-1.5 border-b border-bg-border bg-bg-elevated text-2xs text-text-muted select-none sticky top-0">
+      <div className="flex items-center gap-0 px-4 py-1.5 border-b border-bg-border/50 glass-sm text-2xs text-text-muted select-none sticky top-0">
         <span className="flex-1">USER / CLIENT</span>
         <span className="w-32 flex-shrink-0">ACCOUNT</span>
         <span className="w-36 flex-shrink-0">ADDRESS</span>

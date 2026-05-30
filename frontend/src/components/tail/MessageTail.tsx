@@ -15,6 +15,14 @@ import type { TailedMessage } from '@/types'
 
 type TailMode = 'stream' | 'subject'
 
+// Stable empty array — avoids new reference on every render when no messages exist
+// (Zustand uses Object.is, so `?? []` would trigger re-renders on every store update)
+const EMPTY_MESSAGES: TailedMessage[] = []
+
+// Stable estimateSize function — avoids @tanstack/react-virtual treating it as a
+// changed option on every render (which would trigger an internal useLayoutEffect loop)
+const estimateRowSize = () => 36
+
 interface MessageTailProps {
   clusterId?: string
   stream?: string
@@ -38,7 +46,8 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
   const subjectKey = `subj:${clusterId}:${subjectPattern}`
   const activeKey  = mode === 'stream' ? streamKey : subjectKey
 
-  const messages = useDataStore(s => s.tailMessages[activeKey] ?? [])
+  // Use stable slice selector — avoid `?? []` creating new reference each render
+  const messages = useDataStore(s => s.tailMessages[activeKey] ?? EMPTY_MESSAGES)
   const isActive = useDataStore(s => s.tailActive[activeKey] ?? false)
 
   const { data: streamList } = useQuery({
@@ -59,6 +68,11 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
   // list hasn't actually grown (saves layout work on every re-render).
   const lastScrolledLengthRef = useRef(0)
 
+  // Stable ref to the scroll element — avoids @tanstack/react-virtual treating
+  // an inline `() => parentRef.current` as a new function each render, which
+  // would trigger its internal useLayoutEffect loop and cause error #185.
+  const getScrollElement = useCallback(() => parentRef.current, [])
+
   const filtered = useMemo(() => {
     if (!filterText.trim()) return messages
     const q = filterText.toLowerCase()
@@ -70,10 +84,10 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
   }, [messages, filterText])
 
   const virtualizer = useVirtualizer({
-    count: filtered.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 36,
-    overscan: 20,
+    count:           filtered.length,
+    getScrollElement,         // stable ref via useCallback
+    estimateSize:    estimateRowSize,  // stable module-level fn
+    overscan:        20,
   })
 
   // Auto-scroll: only call scrollToIndex when the list has actually grown
@@ -124,11 +138,23 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
 
   const canStart = mode === 'stream' ? Boolean(selectedStream) : Boolean(subjectPattern.trim())
 
+  if (!clusterId) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="glass rounded-xl p-8 shadow-glass text-center space-y-2">
+          <Radio className="w-8 h-8 text-text-muted mx-auto mb-3" />
+          <p className="text-sm font-mono text-text-secondary">No cluster connected</p>
+          <p className="text-xs font-mono text-text-muted">Connect to a NATS cluster via Settings first</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="flex flex-col h-full bg-bg-base">
+    <div className="flex flex-col h-full">
 
       {/* ── Mode tabs ──────────────────────────────────────────────────────── */}
-      <div className="flex items-center border-b border-bg-border bg-bg-elevated flex-shrink-0">
+      <div className="flex items-center border-b border-bg-border/50 glass flex-shrink-0">
         {([['stream', 'Stream Tail', Layers], ['subject', 'Subject Tail', Radio]] as const).map(([m, label, Icon]) => (
           <button
             key={m}
@@ -147,14 +173,14 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
       </div>
 
       {/* ── Controls toolbar ───────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-bg-border bg-bg-elevated flex-shrink-0 flex-wrap">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-bg-border/50 glass-sm flex-shrink-0 flex-wrap">
 
         {/* Stream / Subject selector */}
         {mode === 'stream' ? (
           <select
             value={selectedStream}
             onChange={e => { if (isActive) streamTail.stop(); setSelectedStream(e.target.value) }}
-            className="bg-bg-surface border border-bg-border text-text-secondary text-xs font-mono rounded px-2 py-1.5 outline-none focus:border-accent-cyan/50 min-w-[160px]"
+            className="select-base min-w-[160px]"
           >
             <option value="">— select stream —</option>
             {streams.map(s => (
@@ -162,7 +188,7 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
             ))}
           </select>
         ) : (
-          <div className="flex items-center gap-1.5 bg-bg-surface border border-bg-border rounded px-2 py-1.5 focus-within:border-accent-cyan/50 transition-colors">
+          <div className="flex items-center gap-1.5 input-base px-2 py-1.5 min-w-[200px]">
             <Radio className="w-3 h-3 text-text-muted flex-shrink-0" />
             <input
               type="text"
@@ -203,7 +229,7 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
         <div className="h-4 w-px bg-bg-border mx-1" />
 
         {/* Filter */}
-        <div className="flex items-center gap-1.5 flex-1 min-w-[160px] bg-bg-surface border border-bg-border rounded px-2 py-1.5 focus-within:border-accent-cyan/50 transition-colors">
+        <div className="flex items-center gap-1.5 flex-1 min-w-[160px] input-base px-2 py-1.5">
           <Filter className="w-3 h-3 text-text-muted flex-shrink-0" />
           <input
             type="text"
@@ -240,7 +266,7 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
       </div>
 
       {/* ── Column headers ─────────────────────────────────────────────────── */}
-      <div className="flex items-center px-4 py-1 border-b border-bg-border bg-bg-elevated text-2xs font-mono text-text-muted uppercase tracking-wider flex-shrink-0 select-none">
+      <div className="flex items-center px-4 py-1 border-b border-bg-border/50 glass-sm text-2xs font-mono text-text-muted uppercase tracking-wider flex-shrink-0 select-none">
         <span className="w-8" />
         <span className="w-32 flex-shrink-0">Timestamp</span>
         <span className="w-14 flex-shrink-0 text-center">Seq</span>
@@ -305,7 +331,7 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
       )}
 
       {/* ── Status bar ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-4 px-4 py-1.5 border-t border-bg-border bg-bg-elevated text-2xs font-mono text-text-muted flex-shrink-0">
+      <div className="flex items-center gap-4 px-4 py-1.5 border-t border-bg-border/50 glass text-2xs font-mono text-text-muted flex-shrink-0">
         {/* Live indicator */}
         <span className="flex items-center gap-1.5">
           <span className={cn(

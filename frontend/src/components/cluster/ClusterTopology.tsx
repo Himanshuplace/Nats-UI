@@ -21,7 +21,7 @@ function NATSNode({ data }: { data: NodeInfo & { clusterId: string } }) {
   return (
     <div
       className={`
-        w-52 rounded-lg border bg-bg-elevated p-3 font-mono
+        w-52 rounded-lg border glass p-3 font-mono
         ${isLeader ? 'border-accent-cyan shadow-glow-cyan' : 'border-bg-border-strong'}
         shadow-lg
       `}
@@ -117,21 +117,21 @@ export function ClusterTopology({ clusterId }: ClusterTopologyProps) {
 
   if (targetClusters.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-bg-base">
-        <EmptyState
-          icon={<Server className="w-10 h-10" />}
-          title="No clusters connected"
-          description="Connect to a NATS server in Settings, then come back here"
-        />
+      <div className="flex-1 flex items-center justify-center">
+        <div className="glass rounded-xl p-8 shadow-glass text-center space-y-2">
+          <Server className="w-8 h-8 text-text-muted mx-auto mb-3" />
+          <p className="text-sm font-mono text-text-secondary">No clusters connected</p>
+          <p className="text-xs font-mono text-text-muted">Connect to a NATS server in Settings, then come back here</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-bg-base">
+    <div className="flex-1 flex flex-col">
       {/* Cluster selector tabs when multiple */}
       {targetClusters.length > 1 && (
-        <div className="flex items-center gap-1 px-4 py-2 border-b border-bg-border bg-bg-elevated flex-shrink-0">
+        <div className="flex items-center gap-1 px-4 py-2 border-b border-bg-border/50 glass flex-shrink-0">
           {targetClusters.map(c => (
             <div key={c.id} className="flex items-center gap-1.5 px-3 py-1 rounded bg-bg-surface border border-bg-border text-xs font-mono text-text-secondary">
               <HealthDot health={c.health} size="xs" />
@@ -164,7 +164,7 @@ function ClusterGraph({ cluster }: { cluster: ClusterInfo }) {
   return (
     <div className="flex-1 flex flex-col">
       {/* Cluster summary bar */}
-      <div className="flex items-center gap-4 px-4 py-2 border-b border-bg-border bg-bg-elevated flex-shrink-0">
+      <div className="flex items-center gap-4 px-4 py-2 border-b border-bg-border/50 glass flex-shrink-0">
         <div className="flex items-center gap-2">
           <HealthDot health={cluster.health} />
           <span className="text-sm font-mono font-semibold text-text-primary">{cluster.name}</span>
@@ -180,7 +180,7 @@ function ClusterGraph({ cluster }: { cluster: ClusterInfo }) {
       </div>
 
       {/* React Flow canvas */}
-      <div className="flex-1 bg-bg-base">
+      <div className="flex-1">
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -200,11 +200,11 @@ function ClusterGraph({ cluster }: { cluster: ClusterInfo }) {
             color="#1E2535"
           />
           <Controls
-            className="bg-bg-elevated border border-bg-border rounded-md overflow-hidden"
+            className="glass border border-bg-border/50 rounded-md overflow-hidden"
             showInteractive={false}
           />
           <MiniMap
-            className="bg-bg-elevated border border-bg-border rounded-md overflow-hidden"
+            className="glass border border-bg-border/50 rounded-md overflow-hidden"
             nodeColor={n => {
               const data = n.data as NodeInfo
               return data.health === 'ok' ? '#10B981' : data.health === 'degraded' ? '#F59E0B' : '#EF4444'

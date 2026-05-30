@@ -29,9 +29,9 @@ export function PayloadViewer({ message }: { message: TailedMessage }) {
   ]
 
   return (
-    <div className="border border-bg-border rounded-md overflow-hidden bg-bg-base">
+    <div className="border border-bg-border/50 rounded-lg overflow-hidden glass">
       {/* Tab bar */}
-      <div className="flex items-center gap-0 border-b border-bg-border bg-bg-elevated">
+      <div className="flex items-center gap-0 border-b border-bg-border/50 glass-sm">
         {TABS.map(t => (
           <button
             key={t.id}

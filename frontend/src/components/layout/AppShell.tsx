@@ -1,9 +1,46 @@
-import { Suspense, lazy, useState } from 'react'
+import { Suspense, lazy, useState, Component, type ReactNode } from 'react'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { CommandPalette } from './CommandPalette'
 import { useUIStore } from '@/store'
 import { Spinner } from '@/components/ui'
+
+// ── Error Boundary ────────────────────────────────────────────────────────────
+// Wraps each lazy view so a crash shows a clean error card instead of blank page.
+
+interface EBState { error: Error | null }
+class ViewErrorBoundary extends Component<{ children: ReactNode }, EBState> {
+  state: EBState = { error: null }
+
+  static getDerivedStateFromError(error: Error): EBState {
+    return { error }
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="glass rounded-xl p-6 shadow-glass max-w-lg w-full space-y-3">
+            <p className="text-sm font-mono font-semibold text-accent-red">View crashed</p>
+            <p className="text-xs font-mono text-text-secondary break-all">
+              {this.state.error.message}
+            </p>
+            <pre className="text-2xs font-mono text-text-muted overflow-auto max-h-40 terminal-pre">
+              {this.state.error.stack}
+            </pre>
+            <button
+              onClick={() => this.setState({ error: null })}
+              className="px-3 py-1.5 rounded-lg bg-accent-cyan/10 border border-accent-cyan/20 text-accent-cyan text-xs font-mono hover:bg-accent-cyan/20 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 const ClusterTopology   = lazy(() => import('@/components/cluster/ClusterTopology').then(m => ({ default: m.ClusterTopology })))
 const StreamExplorer    = lazy(() => import('@/components/streams/StreamExplorer').then(m => ({ default: m.StreamExplorer })))
@@ -214,15 +251,15 @@ export function AppShell() {
   const viewContent = () => {
     switch (activeView) {
       case 'overview':  return <OverviewView />
-      case 'topology':  return <Suspense fallback={<ViewFallback />}><ClusterTopology /></Suspense>
-      case 'streams':   return <Suspense fallback={<ViewFallback />}><StreamExplorer /></Suspense>
-      case 'consumers': return <Suspense fallback={<ViewFallback />}><ConsumerInspector /></Suspense>
-      case 'tail':      return <Suspense fallback={<ViewFallback />}><MessageTail /></Suspense>
-      case 'browser':   return <Suspense fallback={<ViewFallback />}><MessageBrowser /></Suspense>
-      case 'publisher': return <Suspense fallback={<ViewFallback />}><MessagePublisher /></Suspense>
-      case 'replay':    return <Suspense fallback={<ViewFallback />}><ReplayStudio /></Suspense>
-      case 'metrics':   return <Suspense fallback={<ViewFallback />}><MetricsDashboard /></Suspense>
-      case 'accounts':  return <Suspense fallback={<ViewFallback />}><AccountsView /></Suspense>
+      case 'topology':  return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><ClusterTopology /></ViewErrorBoundary></Suspense>
+      case 'streams':   return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><StreamExplorer /></ViewErrorBoundary></Suspense>
+      case 'consumers': return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><ConsumerInspector /></ViewErrorBoundary></Suspense>
+      case 'tail':      return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><MessageTail /></ViewErrorBoundary></Suspense>
+      case 'browser':   return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><MessageBrowser /></ViewErrorBoundary></Suspense>
+      case 'publisher': return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><MessagePublisher /></ViewErrorBoundary></Suspense>
+      case 'replay':    return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><ReplayStudio /></ViewErrorBoundary></Suspense>
+      case 'metrics':   return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><MetricsDashboard /></ViewErrorBoundary></Suspense>
+      case 'accounts':  return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><AccountsView /></ViewErrorBoundary></Suspense>
       case 'dlq':       return <DLQPlaceholder />
       case 'settings':  return <SettingsView />
       default:          return <OverviewView />

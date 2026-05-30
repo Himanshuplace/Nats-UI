@@ -103,20 +103,24 @@ export function MessagePublisher() {
 
   if (!clusterId) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-bg-base">
-        <EmptyState icon={<Send className="w-8 h-8" />} title="No cluster connected" description="Connect to a NATS cluster first" />
+      <div className="flex-1 flex items-center justify-center">
+        <div className="glass rounded-xl p-8 shadow-glass text-center space-y-2">
+          <Send className="w-8 h-8 text-text-muted mx-auto mb-3" />
+          <p className="text-sm font-mono text-text-secondary">No cluster connected</p>
+          <p className="text-xs font-mono text-text-muted">Connect to a NATS cluster via Settings first</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="flex h-full bg-bg-base overflow-hidden">
+    <div className="flex h-full overflow-hidden">
 
       {/* ── Left: compose panel ───────────────────────────────────────────── */}
-      <div className="w-[440px] flex-shrink-0 border-r border-bg-border flex flex-col">
+      <div className="w-[440px] flex-shrink-0 border-r border-bg-border/50 flex flex-col glass">
 
         {/* Header */}
-        <div className="px-4 py-3 border-b border-bg-border bg-bg-elevated flex items-center gap-2 flex-shrink-0">
+        <div className="px-4 py-3 border-b border-bg-border/50 glass-sm flex items-center gap-2 flex-shrink-0">
           <Send className="w-4 h-4 text-accent-cyan" />
           <h2 className="text-xs font-mono font-semibold text-text-primary">Compose Message</h2>
           {subjectList.length > 0 && (
@@ -133,7 +137,7 @@ export function MessagePublisher() {
             </label>
 
             <div className="relative">
-              <div className="flex items-center gap-1 bg-bg-surface border border-bg-border rounded focus-within:border-accent-cyan/50 transition-colors">
+              <div className="flex items-center gap-1 input-base focus-within:border-accent-cyan/50 transition-colors">
                 <input
                   ref={subjectRef}
                   type="text"
@@ -161,7 +165,7 @@ export function MessagePublisher() {
 
               {/* Suggestions dropdown */}
               {showSuggestions && filteredSugg.length > 0 && (
-                <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-bg-elevated border border-bg-border rounded shadow-xl max-h-52 overflow-y-auto">
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 glass border-bg-border/50 rounded-lg shadow-glass max-h-52 overflow-y-auto">
                   {filteredSugg.map((s, i) => (
                     <button
                       key={i}
@@ -271,7 +275,7 @@ export function MessagePublisher() {
 
       {/* ── Right: publish history ─────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <div className="px-4 py-3 border-b border-bg-border bg-bg-elevated flex items-center gap-2 flex-shrink-0">
+        <div className="px-4 py-3 border-b border-bg-border/50 glass-sm flex items-center gap-2 flex-shrink-0">
           <h2 className="text-xs font-mono font-semibold text-text-primary flex-1">Publish History</h2>
           {history.length > 0 && (
             <>

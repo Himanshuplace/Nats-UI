@@ -24,18 +24,18 @@ export function MetricsDashboard() {
 
   if (!hasData && activeClusters.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-bg-base">
-        <EmptyState
-          icon={<BarChart2 className="w-10 h-10" />}
-          title="No metrics available"
-          description="Connect to a NATS cluster to start collecting metrics"
-        />
+      <div className="flex-1 flex items-center justify-center">
+        <div className="glass rounded-xl p-8 shadow-glass text-center space-y-2">
+          <BarChart2 className="w-8 h-8 text-text-muted mx-auto mb-3" />
+          <p className="text-sm font-mono text-text-secondary">No metrics available</p>
+          <p className="text-xs font-mono text-text-muted">Connect to a NATS cluster to start collecting metrics</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-bg-base p-6 space-y-8">
+    <div className="flex-1 overflow-y-auto p-6 space-y-8">
       {/* Per-cluster dashboards */}
       {Object.entries(throughputAll).map(([clusterId, points]) => {
         const cluster = clusters[clusterId]
@@ -224,7 +224,7 @@ function ClusterMetrics({
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-bg-elevated border border-bg-border rounded-lg p-4">
+    <div className="glass rounded-xl border-bg-border/50 p-4 shadow-glass">
       <h3 className="text-2xs font-mono font-semibold text-text-muted uppercase tracking-widest mb-3">
         {title}
       </h3>

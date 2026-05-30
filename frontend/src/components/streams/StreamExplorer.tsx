@@ -48,12 +48,12 @@ export function StreamExplorer() {
 
   if (activeClusters.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-bg-base">
-        <EmptyState
-          icon={<Database className="w-10 h-10" />}
-          title="No cluster connected"
-          description="Go to Settings to connect to a NATS server first"
-        />
+      <div className="flex-1 flex items-center justify-center">
+        <div className="glass rounded-xl p-8 shadow-glass text-center space-y-2">
+          <Database className="w-8 h-8 text-text-muted mx-auto mb-3" />
+          <p className="text-sm font-mono text-text-secondary">No cluster connected</p>
+          <p className="text-xs font-mono text-text-muted">Go to Settings to connect to a NATS server first</p>
+        </div>
       </div>
     )
   }

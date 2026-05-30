@@ -66,9 +66,9 @@ export function ReplayStudio() {
   const doneReplays   = Object.values(replays).filter(r => r.done || r.error)
 
   return (
-    <div className="flex h-full bg-bg-base">
+    <div className="flex h-full">
       {/* Config panel */}
-      <div className="w-96 flex-shrink-0 border-r border-bg-border overflow-y-auto">
+      <div className="w-96 flex-shrink-0 border-r border-bg-border/50 glass overflow-y-auto">
         <div className="p-5 space-y-5">
           <div>
             <h2 className="text-sm font-mono font-bold text-text-primary mb-0.5">Replay Studio</h2>
@@ -255,7 +255,7 @@ function ReplayCard({
   return (
     <div className={cn(
       'border rounded-lg p-4 space-y-3',
-      done ? 'bg-bg-elevated border-bg-border' : 'bg-bg-surface border-accent-cyan/20',
+      done ? 'glass border-bg-border/50' : 'glass border-accent-cyan/20',
     )}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

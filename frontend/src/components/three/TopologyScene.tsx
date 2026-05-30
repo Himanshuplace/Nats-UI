@@ -61,14 +61,17 @@ function EdgeParticles({ positions, throughput }: {
     return pairs
   }, [positions.length])
 
-  const COUNT = Math.min(Math.max(Math.floor(throughput / 2), 3), 30)
+  const COUNT = edges.length === 0
+    ? 0
+    : Math.min(Math.max(Math.floor(throughput / 2), 3), 30)
 
   useEffect(() => {
+    if (edges.length === 0) { particles.current = []; return }
     particles.current = Array.from({ length: COUNT }, (_, k) => ({
       progress: Math.random(),
       speed:    0.003 + Math.random() * 0.005,
-      from:     edges[k % edges.length]?.[0] ?? 0,
-      to:       edges[k % edges.length]?.[1] ?? 1,
+      from:     edges[k % edges.length]![0],
+      to:       edges[k % edges.length]![1],
     }))
   }, [COUNT, edges])
 
@@ -100,6 +103,8 @@ function EdgeParticles({ positions, throughput }: {
     })
     mesh.instanceMatrix.needsUpdate = true
   })
+
+  if (COUNT === 0) return null
 
   return (
     <instancedMesh ref={meshRef} args={[undefined, undefined, COUNT]}>

@@ -109,11 +109,12 @@ function draw3DHex(
   ctx.fill()
 
   // ── Top face border (glowing) ────────────────────────────────────────────
+  // glowAlpha already encodes the per-node pulse phase — no Date.now() needed
   ctx.save()
   ctx.shadowColor = c(col, 0.7 * glowAlpha)
   ctx.shadowBlur  = 12 * glowAlpha
   hexPath(ctx, cx, cy, r)
-  ctx.strokeStyle = c(col, (0.55 + 0.3 * Math.sin(Date.now() * 0.002)) * glowAlpha)
+  ctx.strokeStyle = c(col, 0.65 * glowAlpha)
   ctx.lineWidth   = 1.5
   ctx.stroke()
   ctx.restore()
@@ -178,6 +179,7 @@ export function TopologyScene({ nodes, routes, totalThroughput }: TopologySceneP
   tpRef.current     = totalThroughput
 
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
+  const hoveredIdxRef = useRef<number | null>(null)   // mirror for canvas loop (avoids stale closure)
   const [tipPos,     setTipPos]     = useState({ x: 0, y: 0 })
 
   // Re-seed pulse phases when node count changes
@@ -198,11 +200,13 @@ export function TopologyScene({ nodes, routes, totalThroughput }: TopologySceneP
       const [nx, ny] = posRef.current[i]
       if (Math.sqrt((mx - nx) ** 2 + (my - ny) ** 2) < HEX_R) { found = i; break }
     }
-    setHoveredIdx(found === -1 ? null : found)
+    const next = found === -1 ? null : found
+    hoveredIdxRef.current = next
+    setHoveredIdx(next)
     setTipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
   }, [])
 
-  const handleMouseLeave = useCallback(() => setHoveredIdx(null), [])
+  const handleMouseLeave = useCallback(() => { hoveredIdxRef.current = null; setHoveredIdx(null) }, [])
 
   // Canvas setup + animation loop
   useEffect(() => {
@@ -396,7 +400,7 @@ export function TopologyScene({ nodes, routes, totalThroughput }: TopologySceneP
         if (!pos) continue
         const [x, y]  = pos
         const col     = healthRGB(node.health)
-        const isHover = hoveredIdx === i
+        const isHover = hoveredIdxRef.current === i
         pulsePhase.current[i] = (pulsePhase.current[i] ?? 0) + dt * 1.6
         const glow    = isHover ? 1.5 : 0.85 + Math.sin(pulsePhase.current[i]) * 0.15
 

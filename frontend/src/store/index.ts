@@ -27,10 +27,17 @@ export interface ConsumerViewState {
   selectedConsumer: string | null
 }
 
-export interface PublisherViewState {
+export interface PublisherTab {
+  id: string
+  label: string        // editable short name shown on the tab
   subject: string
   payload: string
   headers: { key: string; value: string }[]
+}
+
+export interface PublisherViewState {
+  tabs: PublisherTab[]
+  activeTabId: string
 }
 
 interface ViewStates {
@@ -40,11 +47,15 @@ interface ViewStates {
   publisher: PublisherViewState
 }
 
+function newPublisherTab(n = 1): PublisherTab {
+  return { id: `tab-${Date.now()}-${n}`, label: `Tab ${n}`, subject: '', payload: '', headers: [] }
+}
+
 const DEFAULT_VIEW_STATES: ViewStates = {
   tail:      { mode: 'stream', selectedStream: '', subjectPattern: '', filter: '', isPaused: false },
   browser:   { selectedStream: '', subjectFilter: '', startSeq: '' },
   consumers: { selectedStream: '', selectedConsumer: null },
-  publisher: { subject: '', payload: '', headers: [] },
+  publisher: { tabs: [newPublisherTab(1)], activeTabId: '' }, // activeTabId set on first render
 }
 
 // ── UI Store ──────────────────────────────────────────────────────────────────

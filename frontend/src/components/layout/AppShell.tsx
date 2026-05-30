@@ -1,9 +1,13 @@
-import { Suspense, lazy, useState, Component, type ReactNode } from 'react'
+import { Suspense, lazy, useState, useRef, useLayoutEffect, useEffect, Component, type ReactNode } from 'react'
+import { Trash2 } from 'lucide-react'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { CommandPalette } from './CommandPalette'
+import { ParticleBackground } from '@/components/three/ParticleBackground'
 import { useUIStore } from '@/store'
 import { Spinner } from '@/components/ui'
+import { animateViewIn } from '@/lib/gsap'
+import { api } from '@/lib/api'
 
 // ── Error Boundary ────────────────────────────────────────────────────────────
 // Wraps each lazy view so a crash shows a clean error card instead of blank page.
@@ -151,13 +155,85 @@ function SettingsView() {
     <div className="flex-1 p-6 overflow-y-auto">
       <div className="max-w-2xl space-y-6 animate-fade-in">
         <h1 className="text-xl font-sans font-semibold text-text-primary tracking-tight">Settings</h1>
-        <div className="surface-card p-5">
-          <h3 className="text-xs font-sans font-semibold text-text-muted uppercase tracking-wide mb-4">
+        <div className="surface-card p-5 space-y-5">
+          <h3 className="text-xs font-sans font-semibold text-text-muted uppercase tracking-wide">
             NATS Connections
           </h3>
-          <ConnectForm />
+          <ConnectionList />
+          <div className="border-t border-bg-border pt-4">
+            <p className="text-xs font-sans font-semibold text-text-secondary mb-3">Add Connection</p>
+            <ConnectForm />
+          </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+interface SavedConn {
+  id: string
+  name: string
+  url: string
+  jetstream: boolean
+  status: string
+}
+
+function ConnectionList() {
+  const removeActiveCluster = useUIStore(s => s.removeActiveCluster)
+  const [conns, setConns] = useState<SavedConn[]>([])
+  const [removing, setRemoving] = useState<string | null>(null)
+
+  const load = () => {
+    api.connections.list()
+      .then(setConns)
+      .catch(() => {})
+  }
+
+  useEffect(() => { load() }, [])
+
+  if (conns.length === 0) {
+    return (
+      <p className="text-xs font-mono text-text-muted">No active connections.</p>
+    )
+  }
+
+  const handleRemove = async (id: string) => {
+    setRemoving(id)
+    try {
+      await api.connections.remove(id)
+      removeActiveCluster(id)
+      setConns(prev => prev.filter(c => c.id !== id))
+    } catch {
+      /* ignore */
+    } finally {
+      setRemoving(null)
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      {conns.map(c => (
+        <div key={c.id} className="flex items-center gap-3 px-3 py-2 rounded-md bg-bg-surface border border-bg-border">
+          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${c.status === 'CONNECTED' ? 'bg-accent-green' : 'bg-accent-red'}`} />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-sans font-medium text-text-primary truncate">{c.name}</p>
+            <p className="text-2xs font-mono text-text-muted truncate">{c.url}</p>
+          </div>
+          {c.jetstream && (
+            <span className="text-2xs font-mono px-1.5 py-0.5 rounded bg-accent-cyan/10 text-accent-cyan border border-accent-cyan/20 flex-shrink-0">
+              JS
+            </span>
+          )}
+          <button
+            onClick={() => handleRemove(c.id)}
+            disabled={removing === c.id}
+            className="h-6 w-6 flex items-center justify-center rounded text-text-muted hover:text-accent-red hover:bg-accent-red/10 transition-colors disabled:opacity-40"
+            title="Disconnect"
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+        </div>
+      ))}
     </div>
   )
 }
@@ -170,15 +246,19 @@ function ConnectForm() {
   const handleConnect = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     const fd    = new FormData(e.currentTarget)
-    const url   = fd.get('url') as string
-    const name  = (fd.get('name') as string) || url
-    const token = (fd.get('token') as string) || undefined
+    const raw   = (fd.get('url') as string).trim()
+    const name  = (fd.get('name') as string) || raw
+
+    // Normalize: bare IP/host → nats://host:4222, host:port → nats://host:port
+    let url = raw
+    if (url && !url.startsWith('nats://') && !url.startsWith('tls://')) {
+      url = 'nats://' + url + (url.includes(':') ? '' : ':4222')
+    }
 
     setLoading(true)
     setStatus(null)
     try {
-      const { api } = await import('@/lib/api')
-      const res = await api.connections.connect({ name, url, token })
+      const res = await api.connections.connect({ name, url })
       setActive(res.id)
       setStatus({ ok: true, msg: `Connected — JetStream: ${res.jetstream}` })
     } catch (err: any) {
@@ -193,28 +273,21 @@ function ConnectForm() {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="text-2xs font-mono text-text-muted uppercase tracking-widest block mb-1.5">
-            Connection Name
+            Connection Name <span className="normal-case opacity-60">(optional)</span>
           </label>
           <input name="name" type="text" placeholder="prod-us-east-1" className="input-base" />
         </div>
         <div>
           <label className="text-2xs font-mono text-text-muted uppercase tracking-widest block mb-1.5">
-            Auth Token <span className="normal-case text-text-muted/60">(optional)</span>
+            Server Address
           </label>
-          <input name="token" type="password" placeholder="natsui-dev-token" className="input-base" />
+          <input
+            name="url" type="text"
+            placeholder="192.168.1.100:4222"
+            required
+            className="input-base"
+          />
         </div>
-      </div>
-      <div>
-        <label className="text-2xs font-mono text-text-muted uppercase tracking-widest block mb-1.5">
-          NATS URL
-        </label>
-        <input
-          name="url" type="text"
-          placeholder="nats://localhost:4222"
-          defaultValue="nats://localhost:4222"
-          required
-          className="input-base"
-        />
       </div>
       <div className="flex items-center gap-3 pt-1">
         <button
@@ -230,11 +303,6 @@ function ConnectForm() {
           </span>
         )}
       </div>
-      <p className="text-2xs font-mono text-text-muted/60 pt-1">
-        The docker-compose cluster uses token auth. Set{' '}
-        <code className="text-accent-cyan">NATS_AUTH_TOKEN</code> in your env
-        (default: <code className="text-accent-cyan">natsui-dev-token</code>).
-      </p>
     </form>
   )
 }
@@ -243,6 +311,13 @@ function ConnectForm() {
 
 export function AppShell() {
   const activeView = useUIStore(s => s.activeView)
+  const mainRef    = useRef<HTMLDivElement>(null)
+
+  // GSAP view transition: slide + fade on every view change
+  useLayoutEffect(() => {
+    const tween = animateViewIn(mainRef.current)
+    return () => { tween?.kill() }
+  }, [activeView])
 
   const viewContent = () => {
     switch (activeView) {
@@ -263,11 +338,14 @@ export function AppShell() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-bg-base text-text-primary">
+    <div className="flex h-screen w-screen overflow-hidden bg-bg-base text-text-primary relative">
+      {/* Phosphor particle field — fixed behind everything */}
+      <ParticleBackground />
+
       <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative z-10">
         <TopBar />
-        <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <main ref={mainRef} className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {viewContent()}
         </main>
       </div>

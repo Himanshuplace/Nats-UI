@@ -38,6 +38,10 @@ logs/
 # Docker
 docker-compose.override.yml
 
+# NatsUI runtime config — contains credentials and JWT secret, never commit
+natsui.json
+natsui-connections.json
+
 # Coverage
 coverage/
 *.coverprofile

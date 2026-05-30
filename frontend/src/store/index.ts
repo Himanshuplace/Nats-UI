@@ -4,6 +4,7 @@ import type {
   View, Tab, ClusterInfo, StreamInfo, ConsumerInfo,
   TailedMessage, ThroughputPoint, NATSServer, ReplayProgress,
 } from '@/types'
+import { getToken, setToken as persistToken, clearToken } from '@/lib/auth'
 
 // ── Per-view persisted UI state ───────────────────────────────────────────────
 // Survives route changes; components read from here on mount instead of resetting.
@@ -73,6 +74,8 @@ interface UIState {
   wsConnected: boolean
   theme: 'dark' | 'light'
   viewStates: ViewStates
+  isAuthenticated: boolean
+  authToken: string | null
 
   setView: (view: View) => void
   setActiveCluster: (id: string) => void
@@ -92,6 +95,8 @@ interface UIState {
   setBrowserState:  (patch: Partial<BrowserViewState>)   => void
   setConsumerState: (patch: Partial<ConsumerViewState>)  => void
   setPublisherState:(patch: Partial<PublisherViewState>) => void
+  setAuth: (token: string) => void
+  clearAuth: () => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -108,6 +113,8 @@ export const useUIStore = create<UIState>()(
     wsConnected:       false,
     theme:             (localStorage.getItem('natsui-theme') as 'dark' | 'light') ?? 'dark',
     viewStates:        DEFAULT_VIEW_STATES,
+    authToken:         getToken(),
+    isAuthenticated:   getToken() !== null,
 
     setView: (view) => set({ activeView: view }),
 
@@ -165,6 +172,15 @@ export const useUIStore = create<UIState>()(
     setPublisherState: (patch) => set((s) => ({
       viewStates: { ...s.viewStates, publisher: { ...s.viewStates.publisher, ...patch } },
     })),
+
+    setAuth: (token) => {
+      persistToken(token)
+      set({ authToken: token, isAuthenticated: true })
+    },
+    clearAuth: () => {
+      clearToken()
+      set({ authToken: null, isAuthenticated: false, activeClusters: [] })
+    },
   })),
 )
 

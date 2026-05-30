@@ -1,16 +1,12 @@
 import type { WSEvent, WSEventType } from '@/types'
+import { getToken } from './auth'
 
 type EventCallback<T = unknown> = (event: WSEvent<T>) => void
 type AnyCallback = (event: WSEvent<unknown>) => void
 
-interface PendingSubscription {
-  type: WSEventType
-  callback: AnyCallback
-}
-
 class NatsUIWebSocket {
   private ws: WebSocket | null = null
-  private url: string
+  private getUrl: () => string
   private listeners = new Map<WSEventType | '*', Set<AnyCallback>>()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectDelay = 1000
@@ -18,8 +14,8 @@ class NatsUIWebSocket {
   private isManualClose = false
   private messageQueue: string[] = []
 
-  constructor(url: string) {
-    this.url = url
+  constructor(getUrl: () => string) {
+    this.getUrl = getUrl
   }
 
   connect(): void {
@@ -32,7 +28,7 @@ class NatsUIWebSocket {
     if (this.ws?.readyState === WebSocket.OPEN) return
 
     try {
-      this.ws = new WebSocket(this.url)
+      this.ws = new WebSocket(this.getUrl())
       this.ws.onopen = this._onOpen.bind(this)
       this.ws.onmessage = this._onMessage.bind(this)
       this.ws.onclose = this._onClose.bind(this)
@@ -44,10 +40,10 @@ class NatsUIWebSocket {
   }
 
   private _onOpen(): void {
-    console.info('[ws] connected to', this.url)
+    const displayUrl = this.getUrl().replace(/\?token=.+/, '?token=***')
+    console.info('[ws] connected to', displayUrl)
     this.reconnectDelay = 1000
 
-    // Flush queued messages
     while (this.messageQueue.length > 0) {
       const msg = this.messageQueue.shift()!
       this.ws?.send(msg)
@@ -55,7 +51,6 @@ class NatsUIWebSocket {
   }
 
   private _onMessage(event: MessageEvent): void {
-    // Server may batch multiple JSON messages separated by newlines
     const lines = (event.data as string).split('\n').filter(Boolean)
     for (const line of lines) {
       try {
@@ -91,11 +86,9 @@ class NatsUIWebSocket {
   private _dispatch(event: WSEvent): void {
     const type = event.type as WSEventType
 
-    // Type-specific listeners
     const typeListeners = this.listeners.get(type)
     typeListeners?.forEach(cb => cb(event))
 
-    // Wildcard listeners
     const wildcard = this.listeners.get('*')
     wildcard?.forEach(cb => cb(event))
   }
@@ -106,8 +99,6 @@ class NatsUIWebSocket {
     }
     const set = this.listeners.get(type)!
     set.add(callback as AnyCallback)
-
-    // Return unsubscribe function
     return () => {
       set.delete(callback as AnyCallback)
     }
@@ -118,10 +109,9 @@ class NatsUIWebSocket {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(msg)
     } else {
-      // Queue for when connection restores
       this.messageQueue.push(msg)
       if (this.messageQueue.length > 100) {
-        this.messageQueue.shift() // drop oldest
+        this.messageQueue.shift()
       }
     }
   }
@@ -154,5 +144,10 @@ class NatsUIWebSocket {
   }
 }
 
-const WS_URL = (import.meta.env.VITE_WS_BASE ?? 'ws://localhost:8080') + '/api/v1/ws'
-export const ws = new NatsUIWebSocket(WS_URL)
+function getWSUrl(): string {
+  const base = (import.meta.env.VITE_WS_BASE ?? 'ws://localhost:8080') + '/api/v1/ws'
+  const token = getToken()
+  return token ? `${base}?token=${encodeURIComponent(token)}` : base
+}
+
+export const ws = new NatsUIWebSocket(getWSUrl)

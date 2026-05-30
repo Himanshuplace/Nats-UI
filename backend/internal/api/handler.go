@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"sync"
@@ -11,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/xid"
 
+	authmw "github.com/Himanshuplace/nats-ui/internal/auth"
 	"github.com/Himanshuplace/nats-ui/internal/discovery"
 	"github.com/Himanshuplace/nats-ui/internal/gateway"
 	"github.com/Himanshuplace/nats-ui/internal/jetstream"
@@ -25,13 +27,16 @@ type handler struct {
 	discovery  *discovery.Manager
 	inspector  *jetstream.Inspector
 	aggregator *metrics.Aggregator
+	authCfg    *authmw.AuthConfig
+	connStore  *authmw.ConnectionStore
 
 	cancelsMu sync.Mutex
 	cancels   map[string]context.CancelFunc
 }
 
-// Mount registers all API routes and wires WebSocket command handlers.
-func Mount(r chi.Router, hub *gateway.Hub, pool *natsmgr.Pool, dm *discovery.Manager, agg *metrics.Aggregator) {
+// Mount registers all API routes. Public auth routes are registered without middleware;
+// everything else is behind the JWT middleware.
+func Mount(r chi.Router, hub *gateway.Hub, pool *natsmgr.Pool, dm *discovery.Manager, agg *metrics.Aggregator, authCfg *authmw.AuthConfig, cs *authmw.ConnectionStore) {
 	ins := jetstream.NewInspector(pool)
 
 	h := &handler{
@@ -40,51 +45,96 @@ func Mount(r chi.Router, hub *gateway.Hub, pool *natsmgr.Pool, dm *discovery.Man
 		discovery:  dm,
 		inspector:  ins,
 		aggregator: agg,
+		authCfg:    authCfg,
+		connStore:  cs,
 		cancels:    make(map[string]context.CancelFunc),
 	}
 
 	h.registerWSHandlers()
 
-	// Discovery
-	r.Get("/discovery/scan", h.discoveryScan)
-	r.Get("/discovery/known", h.discoveryKnown)
+	// ── Public: no auth required ─────────────────────────────────────────────
+	r.Post("/auth/login", h.login)
 
-	// Connections
-	r.Post("/connections", h.connectProfile)
-	r.Get("/connections", h.listConnections)
-	r.Delete("/connections/{id}", h.removeConnection)
+	// ── Protected: JWT required ──────────────────────────────────────────────
+	r.Group(func(r chi.Router) {
+		r.Use(authmw.Middleware(authCfg.Secret))
 
-	// Cluster
-	r.Get("/clusters/{id}/topology", h.clusterTopology)
-	r.Get("/clusters/{id}/health", h.clusterHealth)
-	r.Get("/clusters/{id}/accounts", h.listAccounts)
-	r.Get("/clusters/{id}/connz", h.listConnz)
+		r.Get("/auth/me", h.me)
 
-	// Streams
-	r.Get("/clusters/{id}/streams", h.listStreams)
-	r.Post("/clusters/{id}/streams", h.createStream)
-	r.Get("/clusters/{id}/streams/{stream}", h.getStream)
-	r.Put("/clusters/{id}/streams/{stream}", h.updateStream)
-	r.Delete("/clusters/{id}/streams/{stream}", h.deleteStream)
+		// Discovery
+		r.Get("/discovery/scan", h.discoveryScan)
+		r.Get("/discovery/known", h.discoveryKnown)
 
-	// Consumers
-	r.Get("/clusters/{id}/streams/{stream}/consumers", h.listConsumers)
-	r.Get("/clusters/{id}/streams/{stream}/consumers/{consumer}", h.getConsumer)
-	r.Post("/clusters/{id}/streams/{stream}/consumers", h.createConsumer)
-	r.Delete("/clusters/{id}/streams/{stream}/consumers/{consumer}", h.deleteConsumer)
+		// Connections
+		r.Post("/connections", h.connectProfile)
+		r.Get("/connections", h.listConnections)
+		r.Delete("/connections/{id}", h.removeConnection)
 
-	// Messages: browse stored + publish
-	r.Get("/clusters/{id}/streams/{stream}/messages", h.listMessages)
-	r.Post("/clusters/{id}/publish", h.publish)
+		// Cluster
+		r.Get("/clusters/{id}/topology", h.clusterTopology)
+		r.Get("/clusters/{id}/health", h.clusterHealth)
+		r.Get("/clusters/{id}/accounts", h.listAccounts)
+		r.Get("/clusters/{id}/connz", h.listConnz)
 
-	// Subjects: known subjects for autocomplete
-	r.Get("/clusters/{id}/subjects", h.listSubjects)
+		// Streams
+		r.Get("/clusters/{id}/streams", h.listStreams)
+		r.Post("/clusters/{id}/streams", h.createStream)
+		r.Get("/clusters/{id}/streams/{stream}", h.getStream)
+		r.Put("/clusters/{id}/streams/{stream}", h.updateStream)
+		r.Delete("/clusters/{id}/streams/{stream}", h.deleteStream)
 
-	// Metrics
-	r.Get("/clusters/{id}/metrics/throughput", h.metricsThroughput)
+		// Consumers
+		r.Get("/clusters/{id}/streams/{stream}/consumers", h.listConsumers)
+		r.Get("/clusters/{id}/streams/{stream}/consumers/{consumer}", h.getConsumer)
+		r.Post("/clusters/{id}/streams/{stream}/consumers", h.createConsumer)
+		r.Delete("/clusters/{id}/streams/{stream}/consumers/{consumer}", h.deleteConsumer)
 
-	// WebSocket
-	r.Get("/ws", hub.ServeWS)
+		// Messages + publish
+		r.Get("/clusters/{id}/streams/{stream}/messages", h.listMessages)
+		r.Post("/clusters/{id}/publish", h.publish)
+
+		// Subjects
+		r.Get("/clusters/{id}/subjects", h.listSubjects)
+
+		// Metrics
+		r.Get("/clusters/{id}/metrics/throughput", h.metricsThroughput)
+
+		// WebSocket (token via ?token= query param)
+		r.Get("/ws", hub.ServeWS)
+	})
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+func (h *handler) login(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !authmw.ValidateCredentials(h.authCfg, req.Username, req.Password) {
+		writeError(w, http.StatusUnauthorized, "invalid credentials")
+		return
+	}
+	token, err := authmw.GenerateToken(req.Username, h.authCfg.Secret)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "token generation failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"token":    token,
+		"username": req.Username,
+	})
+}
+
+func (h *handler) me(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{
+		"username": h.authCfg.Username,
+		"status":   "authenticated",
+	})
 }
 
 // ── WebSocket command handlers ────────────────────────────────────────────────
@@ -138,8 +188,6 @@ func (h *handler) handleTailStart(clientID string, payload json.RawMessage) {
 		}()
 
 		err := h.inspector.TailStream(ctx, req.ClusterID, req.Stream, func(msg types.TailedMessage) {
-			// Route only to the client that requested this tail —
-			// avoids flooding every connected tab's send buffer.
 			h.hub.SendToClient(clientID, gateway.EventMessageReceived, msg)
 		})
 		if err != nil && ctx.Err() == nil {
@@ -171,7 +219,7 @@ func (h *handler) handleTailStop(clientID string, payload json.RawMessage) {
 	h.cancelsMu.Unlock()
 }
 
-// Raw NATS subject tail (no stream binding)
+// Raw NATS subject tail
 func (h *handler) handleSubjectTailStart(clientID string, payload json.RawMessage) {
 	var req struct {
 		ClusterID string `json:"clusterId"`
@@ -323,6 +371,7 @@ func (h *handler) connectProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	h.syncConnections()
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":        mc.ID,
 		"connected": true,
@@ -348,7 +397,23 @@ func (h *handler) listConnections(w http.ResponseWriter, r *http.Request) {
 func (h *handler) removeConnection(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	h.pool.Remove(id)
+	h.syncConnections()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// syncConnections persists the current pool state to disk.
+func (h *handler) syncConnections() {
+	if h.connStore == nil {
+		return
+	}
+	conns := h.pool.List()
+	profiles := make([]types.ConnectionProfile, 0, len(conns))
+	for _, mc := range conns {
+		profiles = append(profiles, mc.Profile)
+	}
+	if err := h.connStore.Save(profiles); err != nil {
+		slog.Warn("failed to persist connections", "err", err)
+	}
 }
 
 // ── Cluster ───────────────────────────────────────────────────────────────────
@@ -466,7 +531,6 @@ func (h *handler) updateStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	// Override name with path param so the URL is authoritative
 	if name := chi.URLParam(r, "stream"); name != "" {
 		cfg.Name = name
 	}
@@ -542,8 +606,6 @@ func (h *handler) deleteConsumer(w http.ResponseWriter, r *http.Request) {
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 
-// listMessages fetches stored messages from a stream.
-// Query params: startSeq (uint64), limit (int, max 200), subject (string filter)
 func (h *handler) listMessages(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	stream := chi.URLParam(r, "stream")
@@ -576,7 +638,6 @@ func (h *handler) listMessages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, msgs)
 }
 
-// publish sends a message to a NATS subject.
 func (h *handler) publish(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var req types.PublishRequest
@@ -596,7 +657,6 @@ func (h *handler) publish(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// listSubjects returns all known NATS subjects (stream configs + consumer filters).
 func (h *handler) listSubjects(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	subjects, err := h.inspector.ListSubjects(r.Context(), id)

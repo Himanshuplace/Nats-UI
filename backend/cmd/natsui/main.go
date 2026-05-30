@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/go-chi/cors"
 
 	"github.com/Himanshuplace/nats-ui/internal/api"
+	authmw "github.com/Himanshuplace/nats-ui/internal/auth"
 	"github.com/Himanshuplace/nats-ui/internal/discovery"
 	discoverdocker "github.com/Himanshuplace/nats-ui/internal/discovery/docker"
 	discoverlocal "github.com/Himanshuplace/nats-ui/internal/discovery/local"
@@ -30,47 +32,75 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// ── Config ────────────────────────────────────────────────────────────────
+	configPath := env("NATSUI_CONFIG", "./natsui.json")
+	cfg, err := authmw.LoadConfig(configPath)
+	if err != nil {
+		slog.Error("failed to load config", "path", configPath, "err", err)
+		os.Exit(1)
+	}
+	slog.Info("config loaded", "path", configPath, "username", cfg.Auth.Username)
+
+	// ── Core services ─────────────────────────────────────────────────────────
 	hub := gateway.NewHub()
 	go hub.Run()
 
 	pool := natsmgr.NewPool()
 
-	dm := discovery.NewManager(hub)
-	dm.Register("local", discoverlocal.New())
-	dm.Register("docker", discoverdocker.New())
-
-	// Auto-connect if NATS_URL is set.
-	// NATS_TOKEN is optional — set it when the cluster requires token authentication.
-	if url := os.Getenv("NATS_URL"); url != "" {
-		profile := types.ConnectionProfile{
-			ID:    "default",
-			Name:  "default",
-			URL:   url,
-			Token: os.Getenv("NATS_TOKEN"),
-		}
-		if _, err := pool.Connect(profile); err != nil {
-			slog.Warn("auto-connect failed", "url", url, "err", err)
-		} else {
-			slog.Info("auto-connected to NATS", "url", url, "auth", profile.Token != "")
+	// ── Connection persistence ────────────────────────────────────────────────
+	cs := authmw.NewConnectionStore(cfg.ConnectionsFile)
+	savedProfiles, err := cs.Load()
+	if err != nil {
+		slog.Warn("failed to load saved connections", "err", err)
+	}
+	for _, p := range savedProfiles {
+		if _, err := pool.Connect(p); err != nil {
+			slog.Warn("failed to reconnect saved profile", "id", p.ID, "url", p.URL, "err", err)
 		}
 	}
 
-	// Start background discovery
+	// ── Legacy env-var auto-connect ───────────────────────────────────────────
+	// Kept for backward compatibility (docker-compose / CI).
+	// NATS_TOKEN is optional for token-auth servers.
+	if url := os.Getenv("NATS_URL"); url != "" {
+		if _, ok := pool.Get("default"); !ok {
+			profile := types.ConnectionProfile{
+				ID:    "default",
+				Name:  "default",
+				URL:   url,
+				Token: os.Getenv("NATS_TOKEN"),
+			}
+			if _, err := pool.Connect(profile); err != nil {
+				slog.Warn("auto-connect failed", "url", url, "err", err)
+			} else {
+				slog.Info("auto-connected to NATS", "url", url)
+			}
+		}
+	}
+
+	dm := discovery.NewManager(hub)
+	dm.Register("local", discoverlocal.New())
+	dm.Register("docker", discoverdocker.New())
 	go dm.Start(ctx)
 
-	// Start metrics aggregation
 	agg := metrics.NewAggregator(hub, pool)
 	go agg.Run(ctx)
 
-	// Router
+	// ── Router ────────────────────────────────────────────────────────────────
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(slogMiddleware)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Compress(5))
+
+	// CORS: allow additional origins via NATSUI_ALLOWED_ORIGINS (comma-separated).
+	allowedOrigins := []string{"http://localhost:5173", "http://localhost:3000", "http://localhost:4173"}
+	if v := os.Getenv("NATSUI_ALLOWED_ORIGINS"); v != "" {
+		allowedOrigins = strings.Split(v, ",")
+	}
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000", "http://localhost:4173"},
+		AllowedOrigins:   allowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-Id"},
 		AllowCredentials: true,
@@ -84,7 +114,7 @@ func main() {
 	})
 
 	r.Route("/api/v1", func(r chi.Router) {
-		api.Mount(r, hub, pool, dm, agg)
+		api.Mount(r, hub, pool, dm, agg, &cfg.Auth, cs)
 	})
 
 	port := env("PORT", "8080")
@@ -92,7 +122,7 @@ func main() {
 		Addr:         ":" + port,
 		Handler:      r,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 0, // Streaming — no write timeout
+		WriteTimeout: 0,
 		IdleTimeout:  120 * time.Second,
 	}
 

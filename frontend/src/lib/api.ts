@@ -3,17 +3,38 @@ import type {
   ConnectionProfile, NATSServer, NATSAccount, NATSUser,
   StoredMessage, PublishRequest, PublishResult, SubjectInfo,
 } from '@/types'
+import { getToken, clearToken } from './auth'
 
 const API_ROOT = import.meta.env.VITE_API_BASE ?? 'http://localhost:8080'
 const BASE = API_ROOT + '/api/v1'
 
-async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+// Callback invoked when any protected request returns 401.
+// Set by App.tsx so the store's clearAuth is called without a circular import.
+let _onUnauthorized: (() => void) | null = null
+export function setUnauthorizedHandler(fn: () => void): void {
+  _onUnauthorized = fn
+}
+
+async function req<T>(method: string, path: string, body?: unknown, skipAuth = false): Promise<T> {
+  const headers: Record<string, string> = {}
+  if (body) headers['Content-Type'] = 'application/json'
+  if (!skipAuth) {
+    const token = getToken()
+    if (token) headers['Authorization'] = `Bearer ${token}`
+  }
+
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   })
+
   if (!res.ok) {
+    if (res.status === 401 && !skipAuth) {
+      clearToken()
+      _onUnauthorized?.()
+      throw new Error('Session expired — please log in again')
+    }
     const err = await res.json().catch(() => ({ error: res.statusText }))
     throw new Error(err.error ?? `HTTP ${res.status}`)
   }
@@ -26,6 +47,12 @@ const post = <T>(path: string, body: unknown) => req<T>('POST', path, body)
 const del  = <T>(path: string) => req<T>('DELETE', path)
 
 export const api = {
+  auth: {
+    login: (username: string, password: string) =>
+      req<{ token: string; username: string }>('POST', '/auth/login', { username, password }, true),
+    me: () => get<{ username: string; status: string }>('/auth/me'),
+  },
+
   discovery: {
     scan:  () => get<NATSServer[]>('/discovery/scan'),
     known: () => get<NATSServer[]>('/discovery/known'),

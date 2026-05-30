@@ -1,7 +1,8 @@
-import { Search, Bell, Zap, ChevronRight, Sun, Moon } from 'lucide-react'
+import { Search, Bell, Zap, ChevronRight, Sun, Moon, LogOut } from 'lucide-react'
 import { useUIStore, useDataStore } from '@/store'
 import { HealthDot, cn } from '@/components/ui'
 import { formatNumber } from '@/lib/format'
+import { ws } from '@/lib/ws'
 import type { View } from '@/types'
 
 const VIEW_LABELS: Record<View, string> = {
@@ -25,8 +26,14 @@ export function TopBar() {
   const openPalette = useUIStore(s => s.openCommandPalette)
   const theme       = useUIStore(s => s.theme)
   const toggleTheme = useUIStore(s => s.toggleTheme)
+  const clearAuth   = useUIStore(s => s.clearAuth)
   const clusters    = useDataStore(s => s.clusters)
   const throughput  = useDataStore(s => s.throughput)
+
+  const handleLogout = () => {
+    ws.disconnect()
+    clearAuth()
+  }
 
   const clusterList   = Object.values(clusters)
   const clusterHealth = clusterList.every(c => c.health === 'ok')
@@ -111,6 +118,16 @@ export function TopBar() {
         )}
         title={wsConnected ? 'WebSocket connected' : 'WebSocket disconnected'}
       />
+
+      {/* Logout */}
+      <button
+        onClick={handleLogout}
+        className="h-7 w-7 flex items-center justify-center rounded-md text-text-muted
+                   hover:text-accent-red hover:bg-accent-red/10 transition-colors"
+        title="Sign out"
+      >
+        <LogOut className="w-3.5 h-3.5" />
+      </button>
     </header>
   )
 }

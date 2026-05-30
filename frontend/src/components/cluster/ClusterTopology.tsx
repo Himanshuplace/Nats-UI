@@ -125,6 +125,7 @@ function ClusterView({ cluster }: { cluster: ClusterInfo }) {
         }>
           <TopologyScene
             nodes={nodes}
+            routes={cluster.routes ?? []}
             totalThroughput={totalMsgs}
           />
         </Suspense>

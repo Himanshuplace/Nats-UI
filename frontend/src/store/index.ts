@@ -5,6 +5,48 @@ import type {
   TailedMessage, ThroughputPoint, NATSServer, ReplayProgress,
 } from '@/types'
 
+// ── Per-view persisted UI state ───────────────────────────────────────────────
+// Survives route changes; components read from here on mount instead of resetting.
+
+export interface TailViewState {
+  mode: 'stream' | 'subject'
+  selectedStream: string
+  subjectPattern: string
+  filter: string
+  isPaused: boolean
+}
+
+export interface BrowserViewState {
+  selectedStream: string
+  subjectFilter: string
+  startSeq: string
+}
+
+export interface ConsumerViewState {
+  selectedStream: string
+  selectedConsumer: string | null
+}
+
+export interface PublisherViewState {
+  subject: string
+  payload: string
+  headers: { key: string; value: string }[]
+}
+
+interface ViewStates {
+  tail:      TailViewState
+  browser:   BrowserViewState
+  consumers: ConsumerViewState
+  publisher: PublisherViewState
+}
+
+const DEFAULT_VIEW_STATES: ViewStates = {
+  tail:      { mode: 'stream', selectedStream: '', subjectPattern: '', filter: '', isPaused: false },
+  browser:   { selectedStream: '', subjectFilter: '', startSeq: '' },
+  consumers: { selectedStream: '', selectedConsumer: null },
+  publisher: { subject: '', payload: '', headers: [] },
+}
+
 // ── UI Store ──────────────────────────────────────────────────────────────────
 
 interface UIState {
@@ -19,6 +61,7 @@ interface UIState {
   splitPaneRatio: number       // 0–1 fraction for split pane
   wsConnected: boolean
   theme: 'dark' | 'light'
+  viewStates: ViewStates
 
   setView: (view: View) => void
   setActiveCluster: (id: string) => void
@@ -34,6 +77,10 @@ interface UIState {
   closeTab: (id: string) => void
   setActiveTab: (id: string) => void
   toggleTheme: () => void
+  setTailState:     (patch: Partial<TailViewState>)      => void
+  setBrowserState:  (patch: Partial<BrowserViewState>)   => void
+  setConsumerState: (patch: Partial<ConsumerViewState>)  => void
+  setPublisherState:(patch: Partial<PublisherViewState>) => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -49,6 +96,7 @@ export const useUIStore = create<UIState>()(
     splitPaneRatio:    0.5,
     wsConnected:       false,
     theme:             (localStorage.getItem('natsui-theme') as 'dark' | 'light') ?? 'dark',
+    viewStates:        DEFAULT_VIEW_STATES,
 
     setView: (view) => set({ activeView: view }),
 
@@ -90,9 +138,22 @@ export const useUIStore = create<UIState>()(
       const next = s.theme === 'dark' ? 'light' : 'dark'
       localStorage.setItem('natsui-theme', next)
       document.documentElement.classList.toggle('dark', next === 'dark')
-      document.documentElement.style.backgroundColor = next === 'dark' ? '#070A0D' : '#F0F4F8'
+      document.documentElement.style.backgroundColor = next === 'dark' ? '#09090b' : '#fafafa'
       return { theme: next }
     }),
+
+    setTailState: (patch) => set((s) => ({
+      viewStates: { ...s.viewStates, tail: { ...s.viewStates.tail, ...patch } },
+    })),
+    setBrowserState: (patch) => set((s) => ({
+      viewStates: { ...s.viewStates, browser: { ...s.viewStates.browser, ...patch } },
+    })),
+    setConsumerState: (patch) => set((s) => ({
+      viewStates: { ...s.viewStates, consumers: { ...s.viewStates.consumers, ...patch } },
+    })),
+    setPublisherState: (patch) => set((s) => ({
+      viewStates: { ...s.viewStates, publisher: { ...s.viewStates.publisher, ...patch } },
+    })),
   })),
 )
 

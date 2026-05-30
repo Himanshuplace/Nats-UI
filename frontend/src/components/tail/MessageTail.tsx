@@ -31,16 +31,31 @@ interface MessageTailProps {
 export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: MessageTailProps) {
   const activeClusters = useUIStore(s => s.activeClusters)
   const activeStream   = useUIStore(s => s.activeStream)
+  // Persisted view state — survives route changes
+  const tailState      = useUIStore(s => s.viewStates.tail)
+  const setTailState   = useUIStore(s => s.setTailState)
 
   const clusterId = clusterIdProp || activeClusters[0] || ''
 
-  const [mode, setMode]                     = useState<TailMode>('stream')
-  const [selectedStream, setSelectedStream] = useState(stream || activeStream || '')
-  const [subjectPattern, setSubjectPattern] = useState('')
-  const [filterText, setFilterText]         = useState('')
+  // Initialise from persisted store so navigating away and back keeps selections
+  const [mode, setModeLocal]                = useState<TailMode>(tailState.mode)
+  const [selectedStream, setSelectedStream] = useState(stream || activeStream || tailState.selectedStream)
+  const [subjectPattern, setSubjectPattern] = useState(tailState.subjectPattern)
+  const [filterText, setFilterText]         = useState(tailState.filter)
   const [expandedId, setExpandedId]         = useState<string | null>(null)
   const [autoScroll, setAutoScroll]         = useState(true)
-  const [paused, setPaused]                 = useState(false)
+  const [paused, setPaused]                 = useState(tailState.isPaused)
+
+  // Sync local state changes back to store for persistence
+  const setMode = useCallback((m: TailMode) => {
+    setModeLocal(m)
+    setTailState({ mode: m })
+  }, [setTailState])
+
+  // Sync back to store whenever controlled values change
+  useEffect(() => {
+    setTailState({ selectedStream, subjectPattern, filter: filterText, isPaused: paused })
+  }, [selectedStream, subjectPattern, filterText, paused, setTailState])
 
   const streamKey  = `${clusterId}:${selectedStream}`
   const subjectKey = `subj:${clusterId}:${subjectPattern}`

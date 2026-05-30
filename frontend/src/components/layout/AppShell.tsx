@@ -20,17 +20,15 @@ class ViewErrorBoundary extends Component<{ children: ReactNode }, EBState> {
     if (this.state.error) {
       return (
         <div className="flex-1 flex items-center justify-center p-8">
-          <div className="glass rounded-xl p-6 shadow-glass max-w-lg w-full space-y-3">
-            <p className="text-sm font-mono font-semibold text-accent-red">View crashed</p>
-            <p className="text-xs font-mono text-text-secondary break-all">
+          <div className="surface-card p-6 max-w-lg w-full space-y-3">
+            <p className="text-sm font-sans font-semibold text-accent-red">View crashed</p>
+            <p className="text-xs font-sans text-text-secondary break-all">
               {this.state.error.message}
             </p>
-            <pre className="text-2xs font-mono text-text-muted overflow-auto max-h-40 terminal-pre">
-              {this.state.error.stack}
-            </pre>
+            <pre className="terminal-pre">{this.state.error.stack}</pre>
             <button
               onClick={() => this.setState({ error: null })}
-              className="px-3 py-1.5 rounded-lg bg-accent-cyan/10 border border-accent-cyan/20 text-accent-cyan text-xs font-mono hover:bg-accent-cyan/20 transition-colors"
+              className="px-3 py-1.5 rounded-md bg-accent-primary/10 border border-accent-primary/20 text-accent-primary text-xs font-sans hover:bg-accent-primary/15 transition-colors"
             >
               Retry
             </button>
@@ -78,7 +76,7 @@ function OverviewView() {
             title="1. Connect"
             description="Connect to a NATS server or let NatsUI auto-discover one locally or in Docker."
             action="Settings → Connections"
-            color="cyan"
+            color="primary"
           />
           <QuickStartCard
             title="2. Explore"
@@ -95,8 +93,8 @@ function OverviewView() {
         </div>
 
         {/* Keyboard shortcuts */}
-        <div className="glass rounded-xl p-5 shadow-glass dark:shadow-glass">
-          <h3 className="text-xs font-mono font-semibold text-text-muted uppercase tracking-widest mb-4">
+        <div className="surface-card p-5">
+          <h3 className="text-xs font-sans font-semibold text-text-muted uppercase tracking-wide mb-4">
             Keyboard Shortcuts
           </h3>
           <div className="grid grid-cols-2 gap-x-8 gap-y-2">
@@ -111,10 +109,8 @@ function OverviewView() {
               ['?', 'Show all shortcuts'],
             ].map(([key, desc]) => (
               <div key={key} className="flex items-center gap-3">
-                <kbd className="text-2xs font-mono glass-sm px-1.5 py-0.5 rounded text-text-muted whitespace-nowrap">
-                  {key}
-                </kbd>
-                <span className="text-xs font-mono text-text-muted">{desc}</span>
+                <kbd className="kbd whitespace-nowrap">{key}</kbd>
+                <span className="text-xs font-sans text-text-muted">{desc}</span>
               </div>
             ))}
           </div>
@@ -128,24 +124,24 @@ function QuickStartCard({ title, description, action, color }: {
   title: string
   description: string
   action: string
-  color: 'cyan' | 'green' | 'purple'
+  color: 'primary' | 'green' | 'purple'
 }) {
   const accentBorder = {
-    cyan:   'border-l-accent-cyan',
-    green:  'border-l-accent-green',
-    purple: 'border-l-accent-purple',
+    primary: 'border-l-accent-primary',
+    green:   'border-l-accent-green',
+    purple:  'border-l-accent-purple',
   }[color]
   const accentText = {
-    cyan:   'text-accent-cyan',
-    green:  'text-accent-green',
-    purple: 'text-accent-purple',
+    primary: 'text-accent-primary',
+    green:   'text-accent-green',
+    purple:  'text-accent-purple',
   }[color]
 
   return (
-    <div className={`glass rounded-xl p-5 border-l-2 ${accentBorder} shadow-glass dark:shadow-glass space-y-2`}>
+    <div className={`surface-card p-5 border-l-2 ${accentBorder} space-y-2`}>
       <h3 className={`text-sm font-sans font-semibold ${accentText}`}>{title}</h3>
-      <p className="text-xs font-mono text-text-secondary leading-relaxed">{description}</p>
-      <p className={`text-2xs font-mono ${accentText} opacity-70`}>→ {action}</p>
+      <p className="text-xs font-sans text-text-secondary leading-relaxed">{description}</p>
+      <p className={`text-2xs font-sans ${accentText} opacity-70`}>→ {action}</p>
     </div>
   )
 }
@@ -154,9 +150,9 @@ function SettingsView() {
   return (
     <div className="flex-1 p-6 overflow-y-auto">
       <div className="max-w-2xl space-y-6 animate-fade-in">
-        <h1 className="text-2xl font-sans font-semibold text-text-primary tracking-tight">Settings</h1>
-        <div className="glass rounded-xl p-5 shadow-glass dark:shadow-glass">
-          <h3 className="text-xs font-mono font-semibold text-text-muted uppercase tracking-widest mb-4">
+        <h1 className="text-xl font-sans font-semibold text-text-primary tracking-tight">Settings</h1>
+        <div className="surface-card p-5">
+          <h3 className="text-xs font-sans font-semibold text-text-muted uppercase tracking-wide mb-4">
             NATS Connections
           </h3>
           <ConnectForm />
@@ -267,23 +263,7 @@ export function AppShell() {
   }
 
   return (
-    <div className="relative flex h-screen w-screen overflow-hidden bg-bg-base text-text-primary">
-      {/* ── Gradient orb background — gives the glass panels something to blur ── */}
-      <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
-        <div
-          className="absolute -top-32 -left-32 w-[600px] h-[600px] rounded-full blur-3xl"
-          style={{ background: 'var(--orb1)' }}
-        />
-        <div
-          className="absolute top-1/2 -right-48 w-[500px] h-[500px] rounded-full blur-3xl"
-          style={{ background: 'var(--orb2)' }}
-        />
-        <div
-          className="absolute -bottom-48 left-1/3 w-[500px] h-[500px] rounded-full blur-3xl"
-          style={{ background: 'var(--orb3)' }}
-        />
-      </div>
-
+    <div className="flex h-screen w-screen overflow-hidden bg-bg-base text-text-primary">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <TopBar />

@@ -14,12 +14,25 @@ import { formatNumber, formatTimeAgo, formatDuration } from '@/lib/format'
 import type { ConsumerInfo, ConsumerHealth, ConsumerConfig } from '@/types'
 
 export function ConsumerInspector() {
-  const [selectedStream,   setSelectedStream]   = useState('')
-  const [selectedConsumer, setSelectedConsumer] = useState<string | null>(null)
-  const [showCreate,       setShowCreate]       = useState(false)
+  const activeClusters   = useUIStore(s => s.activeClusters)
+  const consumerState    = useUIStore(s => s.viewStates.consumers)
+  const setConsumerState = useUIStore(s => s.setConsumerState)
+  const clusterId        = activeClusters[0] ?? ''
 
-  const activeClusters = useUIStore(s => s.activeClusters)
-  const clusterId = activeClusters[0] ?? ''
+  // Seed from persisted store
+  const [selectedStream,   setSelectedStreamLocal]   = useState(consumerState.selectedStream)
+  const [selectedConsumer, setSelectedConsumerLocal] = useState<string | null>(consumerState.selectedConsumer)
+  const [showCreate,       setShowCreate]            = useState(false)
+
+  // Sync helpers that update both local state and store
+  const setSelectedStream = (s: string) => {
+    setSelectedStreamLocal(s)
+    setConsumerState({ selectedStream: s, selectedConsumer: null })
+  }
+  const setSelectedConsumer = (c: string | null) => {
+    setSelectedConsumerLocal(c)
+    setConsumerState({ selectedConsumer: c })
+  }
 
   const queryClient = useQueryClient()
 
@@ -42,6 +55,7 @@ export function ConsumerInspector() {
     onSuccess: (_, name) => {
       if (selectedConsumer === name) setSelectedConsumer(null)
       queryClient.invalidateQueries({ queryKey: ['consumers', clusterId, selectedStream] })
+      setShowCreate(false)
     },
   })
 
@@ -58,7 +72,7 @@ export function ConsumerInspector() {
           <label className="text-2xs font-mono text-text-muted uppercase tracking-widest block mb-1.5">Stream</label>
           <select
             value={selectedStream}
-            onChange={e => { setSelectedStream(e.target.value); setSelectedConsumer(null); setShowCreate(false) }}
+            onChange={e => { setSelectedStream(e.target.value); setShowCreate(false) }}
             className="select-base"
           >
             <option value="">— select stream —</option>
@@ -93,6 +107,7 @@ export function ConsumerInspector() {
               consumer={c}
               selected={selectedConsumer === c.name}
               onSelect={() => { setSelectedConsumer(c.name); setShowCreate(false) }}
+
               onDelete={() => { if (window.confirm(`Delete consumer "${c.name}"?`)) deleteMutation.mutate(c.name) }}
             />
           ))}

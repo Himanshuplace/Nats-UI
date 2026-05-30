@@ -4,7 +4,7 @@
  * NOT live/streaming. User picks stream + optional subject filter + start seq,
  * clicks Fetch, sees paginated results. Each row is expandable for full payload.
  */
-import { useState, Fragment } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Search, ChevronDown, ChevronRight, ChevronLeft,
@@ -19,16 +19,26 @@ import type { StoredMessage } from '@/types'
 const PAGE_SIZE = 50
 
 export function MessageBrowser() {
-  const activeClusters = useUIStore(s => s.activeClusters)
-  const activeStream   = useUIStore(s => s.activeStream)   // pre-select from StreamExplorer
-  const clusterId      = activeClusters[0] ?? ''
+  const activeClusters   = useUIStore(s => s.activeClusters)
+  const activeStream     = useUIStore(s => s.activeStream)
+  const browserState     = useUIStore(s => s.viewStates.browser)
+  const setBrowserState  = useUIStore(s => s.setBrowserState)
+  const clusterId        = activeClusters[0] ?? ''
 
-  // Seed selectedStream from the global activeStream when first rendered
-  const [selectedStream, setSelectedStream] = useState(activeStream ?? '')
-  const [subjectFilter, setSubjectFilter]   = useState('')
-  // Auto-fetch on mount when stream is pre-selected (e.g. navigated from StreamExplorer)
-  const [fetchKey, setFetchKey]             = useState(() => activeStream ? 1 : 0)
-  const [startSeq, setStartSeq]             = useState('')
+  // Seed from persisted state, fallback to activeStream for cross-view navigation
+  const [selectedStream, setSelectedStream] = useState(
+    activeStream ?? browserState.selectedStream,
+  )
+  const [subjectFilter, setSubjectFilter]   = useState(browserState.subjectFilter)
+  const [fetchKey, setFetchKey]             = useState(() =>
+    (activeStream || browserState.selectedStream) ? 1 : 0,
+  )
+  const [startSeq, setStartSeq]             = useState(browserState.startSeq)
+
+  // Sync selections back to store
+  useEffect(() => {
+    setBrowserState({ selectedStream, subjectFilter, startSeq })
+  }, [selectedStream, subjectFilter, startSeq, setBrowserState])
   const [nextSeq, setNextSeq]               = useState<number | null>(null)  // for next-page
   const [history, setHistory]               = useState<number[]>([])         // startSeq stack for prev-page
   const [expandedSeq, setExpandedSeq]       = useState<number | null>(null)

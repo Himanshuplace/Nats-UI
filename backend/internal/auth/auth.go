@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -66,6 +67,11 @@ func LoadConfig(path string) (*AppConfig, error) {
 	}
 	if cfg.ConnectionsFile == "" {
 		cfg.ConnectionsFile = "./natsui-connections.json"
+	}
+	// Resolve connections_file relative to the config file's own directory
+	// so both files always live together (important when mounted as a Docker volume).
+	if !filepath.IsAbs(cfg.ConnectionsFile) {
+		cfg.ConnectionsFile = filepath.Join(filepath.Dir(path), cfg.ConnectionsFile)
 	}
 	return &cfg, nil
 }

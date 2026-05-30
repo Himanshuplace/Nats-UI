@@ -89,8 +89,10 @@ services:
       - NATS_URL=nats://nats1:4222,nats://nats2:4222,nats://nats3:4222
       - NATS_TOKEN=${NATS_AUTH_TOKEN:-natsui-dev-token}
       - LOG_LEVEL=info
+      - NATSUI_CONFIG=/app/config/natsui.json
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./natsui-config:/app/config   # persists natsui.json + natsui-connections.json
     networks:
       - natsui
     depends_on:

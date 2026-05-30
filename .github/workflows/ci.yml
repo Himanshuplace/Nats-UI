@@ -49,11 +49,13 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Align npm version
+        # lockfile was generated with npm 11 — npm 10 (bundled with Node 20) resolves
+        # peer deps differently and rejects the lockfile with "Missing: framer-motion".
+        # Pin to npm 11 here and in the Dockerfile so all environments are consistent.
+        run: npm install -g npm@11
+
       - name: Install
-        # npm ci validates lockfile sync automatically — fails with a clear error
-        # if package.json and package-lock.json are out of sync. No separate check
-        # needed; `npm install --package-lock-only` + git diff breaks on cross-platform
-        # repos because optional deps resolve differently per OS.
         run: npm ci
 
       - name: Type-check

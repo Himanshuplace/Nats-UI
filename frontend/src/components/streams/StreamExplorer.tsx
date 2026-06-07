@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Layers, Database, Clock, Hash, HardDrive,
-  Trash2, Pencil, Plus, X, ChevronRight, AlertTriangle,
+  Trash2, Pencil, Plus, X, ChevronRight, AlertTriangle, FileCode,
 } from 'lucide-react'
+import { ConfigExportModal } from '@/components/export/ConfigExport'
 import { useUIStore } from '@/store'
 import { api } from '@/lib/api'
 import {
@@ -207,7 +208,8 @@ function StreamDetail({
   clusterId: string
   onDeleted: () => void
 }) {
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditing]     = useState(false)
+  const [exporting, setExporting] = useState(false)
   const queryClient = useQueryClient()
 
   const { data: consumers } = useQuery({
@@ -270,6 +272,9 @@ function StreamDetail({
           <Button variant="secondary" size="sm" onClick={() => setView('replay')}>
             Replay
           </Button>
+          <Button variant="ghost" size="sm" onClick={() => setExporting(true)} title="Export as code">
+            <FileCode className="w-3.5 h-3.5" />
+          </Button>
           <Button variant="ghost" size="sm" onClick={() => setEditing(true)} title="Edit stream">
             <Pencil className="w-3.5 h-3.5" />
           </Button>
@@ -289,6 +294,8 @@ function StreamDetail({
           </Button>
         </div>
       </div>
+
+      {exporting && <ConfigExportModal kind="stream" config={stream.config} onClose={() => setExporting(false)} />}
 
       {deleteMutation.isError && (
         <div className="flex items-center gap-2 px-3 py-2 bg-accent-red/10 border border-accent-red/20 rounded text-xs font-mono text-accent-red">

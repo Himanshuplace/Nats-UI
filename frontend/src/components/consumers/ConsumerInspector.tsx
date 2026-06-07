@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Users, AlertTriangle, TrendingDown, Activity,
-  Zap, Plus, Trash2, X, ChevronDown, ChevronRight,
+  Zap, Plus, Trash2, X, ChevronDown, ChevronRight, FileCode,
 } from 'lucide-react'
+import { ConfigExportModal } from '@/components/export/ConfigExport'
 import { useUIStore } from '@/store'
 import { api } from '@/lib/api'
 import {
@@ -185,6 +186,7 @@ function LagBadge({ lag }: { lag: number }) {
 
 function ConsumerDetail({ consumer }: { consumer: ConsumerInfo }) {
   const [showAllConfig, setShowAllConfig] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const lagPct = consumer.numPending > 0
     ? Math.min((consumer.lag / consumer.numPending) * 100, 100) : 0
 
@@ -203,8 +205,15 @@ function ConsumerDetail({ consumer }: { consumer: ConsumerInfo }) {
             {consumer.config.durableName && <> · durable: <span className="text-accent-cyan">{consumer.config.durableName}</span></>}
           </p>
         </div>
-        <span className="text-xs font-mono text-text-muted">{formatTimeAgo(consumer.created)}</span>
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={() => setExporting(true)} title="Export as code">
+            <FileCode className="w-3.5 h-3.5" />
+          </Button>
+          <span className="text-xs font-mono text-text-muted">{formatTimeAgo(consumer.created)}</span>
+        </div>
       </div>
+
+      {exporting && <ConfigExportModal kind="consumer" stream={consumer.stream} config={consumer.config} onClose={() => setExporting(false)} />}
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

@@ -228,6 +228,65 @@ type PublishResult struct {
 	Accepted bool   `json:"accepted"`
 }
 
+// RequestReplyRequest — body for POST /clusters/{id}/request (core req-reply).
+type RequestReplyRequest struct {
+	Subject   string            `json:"subject"`
+	Payload   string            `json:"payload"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	TimeoutMs int               `json:"timeoutMs"`
+}
+
+// RequestReplyResult — response from a request. TimedOut / NoResponders are
+// normal request outcomes (not transport errors), so they come back 200.
+type RequestReplyResult struct {
+	Subject      string            `json:"subject,omitempty"` // reply inbox subject
+	Payload      string            `json:"payload"`
+	Headers      map[string]string `json:"headers,omitempty"`
+	Size         int               `json:"size"`
+	RTTms        float64           `json:"rttMs"`
+	NoResponders bool              `json:"noResponders,omitempty"`
+	TimedOut     bool              `json:"timedOut,omitempty"`
+}
+
+// ── Key-Value store ─────────────────────────────────────────────────────────────
+
+// KVBucketInfo summarizes a JetStream KV bucket (backed by a KV_* stream).
+type KVBucketInfo struct {
+	Bucket   string `json:"bucket"`
+	Values   uint64 `json:"values"`  // number of live keys
+	History  int64  `json:"history"` // revisions kept per key
+	TTL      int64  `json:"ttl"`     // per-key TTL in ns (0 = unlimited)
+	Bytes    uint64 `json:"bytes"`
+	Replicas int    `json:"replicas"`
+}
+
+// KVEntry is one key's value at a revision (also used for history rows).
+type KVEntry struct {
+	Bucket    string    `json:"bucket"`
+	Key       string    `json:"key"`
+	Value     string    `json:"value"`
+	Revision  uint64    `json:"revision"`
+	Created   time.Time `json:"created"`
+	Operation string    `json:"operation"` // PUT | DELETE | PURGE
+	Size      int       `json:"size"`
+}
+
+// KVBucketConfig — body for POST /clusters/{id}/kv (create bucket).
+type KVBucketConfig struct {
+	Bucket       string `json:"bucket"`
+	Description  string `json:"description,omitempty"`
+	History      int    `json:"history"`      // 1..64
+	TTL          int64  `json:"ttl"`          // seconds (0 = unlimited)
+	Storage      string `json:"storage"`      // file | memory
+	Replicas     int    `json:"replicas"`
+	MaxValueSize int32  `json:"maxValueSize"` // bytes (0 = unlimited)
+}
+
+// KVPutRequest — body for PUT /clusters/{id}/kv/{bucket}/keys/{key}.
+type KVPutRequest struct {
+	Value string `json:"value"`
+}
+
 // ── Metrics ───────────────────────────────────────────────────────────────────
 
 type ThroughputPoint struct {
@@ -302,12 +361,24 @@ type ConnectionProfile struct {
 	Host        string `json:"host,omitempty"`        // derived or explicit
 	ClientPort  int    `json:"clientPort,omitempty"`  // derived or explicit
 	MonitorPort int    `json:"monitorPort,omitempty"` // default 8222
-	NKeyPath    string `json:"nkeyPath,omitempty"`
-	CredsPath   string `json:"credsPath,omitempty"`
-	TLSCert     string `json:"tlsCert,omitempty"`
-	TLSKey      string `json:"tlsKey,omitempty"`
-	TLSCA       string `json:"tlsCa,omitempty"`
-	Token       string `json:"token,omitempty"`
+
+	// ── NATS authentication (whatever the server requires) ──────────────────
+	Username string `json:"username,omitempty"` // user/password auth
+	Password string `json:"password,omitempty"`
+	Token    string `json:"token,omitempty"` // token auth
+
+	// File-path credentials (server-side files; for co-located backends)
+	NKeyPath  string `json:"nkeyPath,omitempty"`
+	CredsPath string `json:"credsPath,omitempty"`
+	TLSCert   string `json:"tlsCert,omitempty"`
+	TLSKey    string `json:"tlsKey,omitempty"`
+	TLSCA     string `json:"tlsCa,omitempty"`
+
+	// Pasted credential contents (browser-friendly — materialized to temp files
+	// on connect). Take precedence over the *Path variants above.
+	CredsContent string `json:"credsContent,omitempty"` // full decorated .creds file
+	NKeySeed     string `json:"nkeySeed,omitempty"`      // raw nkey seed (S...)
+	TLSCAContent string `json:"tlsCaContent,omitempty"`  // CA certificate PEM
 }
 
 // ── WebSocket events ──────────────────────────────────────────────────────────

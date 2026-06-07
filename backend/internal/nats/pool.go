@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,12 +17,13 @@ import (
 
 // ManagedConn wraps a NATS connection with metadata.
 type ManagedConn struct {
-	ID       string
-	Profile  types.ConnectionProfile
-	NC       *natsgo.Conn
-	JS       natsgo.JetStreamContext
-	mu       sync.RWMutex
+	ID          string
+	Profile     types.ConnectionProfile
+	NC          *natsgo.Conn
+	JS          natsgo.JetStreamContext
+	mu          sync.RWMutex
 	connectedAt time.Time
+	tempFiles   []string // temp credential files to clean up on Remove
 }
 
 // IsJetStream returns true if JetStream is available on this connection.
@@ -81,26 +84,71 @@ func (p *Pool) Connect(profile types.ConnectionProfile) (*ManagedConn, error) {
 		}),
 	}
 
+	// Track any temp credential files so we can clean them up on Remove.
+	var tempFiles []string
+	cleanupTemp := func() {
+		for _, f := range tempFiles {
+			_ = os.Remove(f)
+		}
+	}
+
+	// ── Authentication ──────────────────────────────────────────────────────
+	if profile.Username != "" {
+		opts = append(opts, natsgo.UserInfo(profile.Username, profile.Password))
+	}
 	if profile.Token != "" {
 		opts = append(opts, natsgo.Token(profile.Token))
 	}
-	if profile.CredsPath != "" {
+
+	// Credentials (JWT): pasted content wins over file path.
+	if profile.CredsContent != "" {
+		path, err := writeTempSecret("natsui-creds-"+profile.ID+"-*.creds", profile.CredsContent)
+		if err != nil {
+			return nil, fmt.Errorf("write creds: %w", err)
+		}
+		tempFiles = append(tempFiles, path)
+		opts = append(opts, natsgo.UserCredentials(path))
+	} else if profile.CredsPath != "" {
 		opts = append(opts, natsgo.UserCredentials(profile.CredsPath))
 	}
-	if profile.NKeyPath != "" {
+
+	// NKey: pasted seed wins over file path.
+	if profile.NKeySeed != "" {
+		path, err := writeTempSecret("natsui-nkey-"+profile.ID+"-*.nk", profile.NKeySeed)
+		if err != nil {
+			return nil, fmt.Errorf("write nkey seed: %w", err)
+		}
+		tempFiles = append(tempFiles, path)
+		if nkeyOpt, err := natsgo.NkeyOptionFromSeed(path); err == nil {
+			opts = append(opts, nkeyOpt)
+		} else {
+			cleanupTemp()
+			return nil, fmt.Errorf("invalid nkey seed: %w", err)
+		}
+	} else if profile.NKeyPath != "" {
 		if nkeyOpt, err := natsgo.NkeyOptionFromSeed(profile.NKeyPath); err == nil {
 			opts = append(opts, nkeyOpt)
 		}
 	}
+
+	// TLS
 	if profile.TLSCert != "" && profile.TLSKey != "" {
 		opts = append(opts, natsgo.ClientCert(profile.TLSCert, profile.TLSKey))
 	}
-	if profile.TLSCA != "" {
+	if profile.TLSCAContent != "" {
+		path, err := writeTempSecret("natsui-ca-"+profile.ID+"-*.pem", profile.TLSCAContent)
+		if err != nil {
+			return nil, fmt.Errorf("write tls ca: %w", err)
+		}
+		tempFiles = append(tempFiles, path)
+		opts = append(opts, natsgo.RootCAs(path))
+	} else if profile.TLSCA != "" {
 		opts = append(opts, natsgo.RootCAs(profile.TLSCA))
 	}
 
 	nc, err := natsgo.Connect(profile.URL, opts...)
 	if err != nil {
+		cleanupTemp()
 		return nil, fmt.Errorf("connect to %s: %w", profile.URL, err)
 	}
 
@@ -109,6 +157,7 @@ func (p *Pool) Connect(profile types.ConnectionProfile) (*ManagedConn, error) {
 		Profile:     profile,
 		NC:          nc,
 		connectedAt: time.Now(),
+		tempFiles:   tempFiles,
 	}
 
 	// Try JetStream
@@ -126,6 +175,27 @@ func (p *Pool) Connect(profile types.ConnectionProfile) (*ManagedConn, error) {
 
 	slog.Info("nats connection added to pool", "id", profile.ID, "url", profile.URL)
 	return mc, nil
+}
+
+// writeTempSecret writes credential content to a 0600 temp file and returns its
+// path. pattern follows os.CreateTemp semantics (a "*" is replaced by a random
+// string). Used to materialize browser-pasted creds/nkey/CA into files that the
+// nats.go client options can read.
+func writeTempSecret(pattern, content string) (string, error) {
+	f, err := os.CreateTemp(filepath.Join(os.TempDir()), pattern)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	if err := f.Chmod(0o600); err != nil {
+		// best-effort on platforms that support it; ignore otherwise
+		_ = err
+	}
+	if _, err := f.WriteString(content); err != nil {
+		_ = os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
 }
 
 // ConnectURL is a convenience method for connecting with just a URL.
@@ -167,6 +237,9 @@ func (p *Pool) Remove(id string) {
 
 	if ok {
 		mc.NC.Drain()
+		for _, f := range mc.tempFiles {
+			_ = os.Remove(f)
+		}
 		slog.Info("nats connection removed", "id", id)
 	}
 }

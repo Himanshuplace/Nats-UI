@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -89,12 +90,22 @@ func Mount(r chi.Router, hub *gateway.Hub, pool *natsmgr.Pool, dm *discovery.Man
 		r.Post("/clusters/{id}/streams/{stream}/consumers", h.createConsumer)
 		r.Delete("/clusters/{id}/streams/{stream}/consumers/{consumer}", h.deleteConsumer)
 
-		// Messages + publish
+		// Messages + publish + request-reply
 		r.Get("/clusters/{id}/streams/{stream}/messages", h.listMessages)
 		r.Post("/clusters/{id}/publish", h.publish)
+		r.Post("/clusters/{id}/request", h.request)
 
 		// Subjects
 		r.Get("/clusters/{id}/subjects", h.listSubjects)
+
+		// Key-Value (keys via ?key= query param)
+		r.Get("/clusters/{id}/kv", h.listKVBuckets)
+		r.Post("/clusters/{id}/kv", h.createKVBucket)
+		r.Delete("/clusters/{id}/kv/{bucket}", h.deleteKVBucket)
+		r.Get("/clusters/{id}/kv/{bucket}/keys", h.listKVKeys)
+		r.Get("/clusters/{id}/kv/{bucket}/history", h.getKVHistory)
+		r.Put("/clusters/{id}/kv/{bucket}/entry", h.putKVKey)
+		r.Delete("/clusters/{id}/kv/{bucket}/entry", h.deleteKVKey)
 
 		// Metrics
 		r.Get("/clusters/{id}/metrics/throughput", h.metricsThroughput)
@@ -147,6 +158,85 @@ func (h *handler) registerWSHandlers() {
 	h.hub.RegisterHandler(gateway.CmdReplayStart, h.handleReplayStart)
 	h.hub.RegisterHandler(gateway.CmdReplayStop, h.handleReplayStop)
 	h.hub.RegisterHandler(gateway.CmdMetricsWatch, h.handleMetricsWatch)
+	h.hub.RegisterHandler(gateway.CmdFlowStart, h.handleFlowStart)
+	h.hub.RegisterHandler(gateway.CmdFlowStop, h.handleFlowStop)
+
+	// Tear down a client's subscriptions (tail / replay / flow) when its
+	// WebSocket drops, so they don't leak if the tab closes without stopping.
+	h.hub.OnClientDisconnect(func(clientID string) {
+		prefix := clientID + ":"
+		h.cancelsMu.Lock()
+		for key, cancel := range h.cancels {
+			if strings.HasPrefix(key, prefix) {
+				cancel()
+				delete(h.cancels, key)
+			}
+		}
+		h.cancelsMu.Unlock()
+	})
+}
+
+// ── Topology live flow ──────────────────────────────────────────────────────
+// Streams a rate-capped sample of real ">" traffic to the requesting client
+// only, so the 3D topology can pulse on genuine messages. Scoped per client so
+// it starts when the topology view opens and stops when it closes.
+
+func (h *handler) handleFlowStart(clientID string, payload json.RawMessage) {
+	var req struct {
+		ClusterID       string `json:"clusterId"`
+		IncludeInternal bool   `json:"includeInternal"`
+	}
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return
+	}
+	if req.ClusterID == "" {
+		req.ClusterID = "default"
+	}
+
+	cancelKey := clientID + ":flow:" + req.ClusterID
+	h.cancelsMu.Lock()
+	if cancel, ok := h.cancels[cancelKey]; ok {
+		cancel() // restart if already running
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	h.cancels[cancelKey] = cancel
+	h.cancelsMu.Unlock()
+
+	go func() {
+		defer func() {
+			h.cancelsMu.Lock()
+			delete(h.cancels, cancelKey)
+			h.cancelsMu.Unlock()
+		}()
+		err := h.inspector.FlowSample(ctx, req.ClusterID, req.IncludeInternal, func(ev jetstream.FlowEvent) {
+			h.hub.SendToClient(clientID, gateway.EventTopologyFlow, ev)
+		})
+		if err != nil && ctx.Err() == nil {
+			h.hub.SendToClient(clientID, gateway.EventError, map[string]string{
+				"code":    "FLOW_ERROR",
+				"message": err.Error(),
+			})
+		}
+	}()
+}
+
+func (h *handler) handleFlowStop(clientID string, payload json.RawMessage) {
+	var req struct {
+		ClusterID string `json:"clusterId"`
+	}
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return
+	}
+	if req.ClusterID == "" {
+		req.ClusterID = "default"
+	}
+	cancelKey := clientID + ":flow:" + req.ClusterID
+	h.cancelsMu.Lock()
+	if cancel, ok := h.cancels[cancelKey]; ok {
+		cancel()
+		delete(h.cancels, cancelKey)
+	}
+	h.cancelsMu.Unlock()
 }
 
 // Stream-bound tail
@@ -657,6 +747,25 @@ func (h *handler) publish(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (h *handler) request(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req types.RequestReplyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Subject == "" {
+		writeError(w, http.StatusBadRequest, "subject is required")
+		return
+	}
+	result, err := h.inspector.RequestReply(r.Context(), id, req)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (h *handler) listSubjects(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	subjects, err := h.inspector.ListSubjects(r.Context(), id)
@@ -668,6 +777,125 @@ func (h *handler) listSubjects(w http.ResponseWriter, r *http.Request) {
 		subjects = []types.SubjectInfo{}
 	}
 	writeJSON(w, http.StatusOK, subjects)
+}
+
+// ── Key-Value ───────────────────────────────────────────────────────────────────
+// Keys are passed as the ?key= query param (KV keys may contain dots/slashes that
+// would break path routing); bucket names are restricted to [A-Za-z0-9_-] so they
+// are path-safe.
+
+func (h *handler) listKVBuckets(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	buckets, err := h.inspector.ListKVBuckets(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, buckets)
+}
+
+func (h *handler) createKVBucket(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var cfg types.KVBucketConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if cfg.Bucket == "" {
+		writeError(w, http.StatusBadRequest, "bucket is required")
+		return
+	}
+	info, err := h.inspector.CreateKVBucket(r.Context(), id, cfg)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, info)
+}
+
+func (h *handler) deleteKVBucket(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	bucket := chi.URLParam(r, "bucket")
+	if err := h.inspector.DeleteKVBucket(r.Context(), id, bucket); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *handler) listKVKeys(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	bucket := chi.URLParam(r, "bucket")
+	entries, err := h.inspector.ListKVKeys(r.Context(), id, bucket)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if entries == nil {
+		entries = []types.KVEntry{}
+	}
+	writeJSON(w, http.StatusOK, entries)
+}
+
+func (h *handler) getKVHistory(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	bucket := chi.URLParam(r, "bucket")
+	key := r.URL.Query().Get("key")
+	if key == "" {
+		writeError(w, http.StatusBadRequest, "key is required")
+		return
+	}
+	hist, err := h.inspector.GetKVHistory(r.Context(), id, bucket, key)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if hist == nil {
+		hist = []types.KVEntry{}
+	}
+	writeJSON(w, http.StatusOK, hist)
+}
+
+func (h *handler) putKVKey(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	bucket := chi.URLParam(r, "bucket")
+	key := r.URL.Query().Get("key")
+	if key == "" {
+		writeError(w, http.StatusBadRequest, "key is required")
+		return
+	}
+	var req types.KVPutRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	rev, err := h.inspector.PutKVKey(r.Context(), id, bucket, key, req.Value)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"revision": rev})
+}
+
+func (h *handler) deleteKVKey(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	bucket := chi.URLParam(r, "bucket")
+	key := r.URL.Query().Get("key")
+	if key == "" {
+		writeError(w, http.StatusBadRequest, "key is required")
+		return
+	}
+	var err error
+	if r.URL.Query().Get("purge") == "true" {
+		err = h.inspector.PurgeKVKey(r.Context(), id, bucket, key)
+	} else {
+		err = h.inspector.DeleteKVKey(r.Context(), id, bucket, key)
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ── Metrics ───────────────────────────────────────────────────────────────────

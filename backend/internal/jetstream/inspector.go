@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	natsgo "github.com/nats-io/nats.go"
@@ -439,6 +440,89 @@ func (ins *Inspector) TailSubject(ctx context.Context, clusterID, subject string
 	<-ctx.Done()
 	sub.Unsubscribe()
 	slog.Info("subject tail stopped", "subject", subject, "cluster", clusterID)
+	return nil
+}
+
+// ── Topology live flow ────────────────────────────────────────────────────────
+
+// FlowEvent is a lightweight sample of one real message crossing the wire. It
+// deliberately carries no payload — only what the topology animation needs.
+type FlowEvent struct {
+	ClusterID string `json:"clusterId"`
+	Subject   string `json:"subject"`
+	Size      int    `json:"size"`
+	Internal  bool   `json:"internal"` // true for NATS/JetStream plumbing ($…, _…)
+}
+
+// isInternalSubject reports whether subj is NATS/JetStream internal plumbing
+// rather than real application traffic. Internal subjects always begin with
+// '$' (system account, JetStream API/acks, KV/Object buckets, MQTT, NRG, …) or
+// '_' (request-reply _INBOX.> and _R_.> reply inboxes). Application subjects do
+// not use these reserved prefixes, so this cleanly separates the messages a
+// developer actually publishes/receives from the cluster's own chatter.
+func isInternalSubject(subj string) bool {
+	if subj == "" {
+		return false
+	}
+	switch subj[0] {
+	case '$', '_':
+		return true
+	default:
+		return false
+	}
+}
+
+// FlowSample subscribes to all subjects (">") and forwards a rate-capped sample
+// of real messages to fn. Internal NATS/JetStream subjects are filtered out so
+// only genuine application traffic reaches the topology. The cap protects the
+// WebSocket from high-throughput servers while keeping the animation driven
+// entirely by real traffic (no synthetic messages). Blocks until ctx is
+// cancelled.
+func (ins *Inspector) FlowSample(ctx context.Context, clusterID string, includeInternal bool, fn func(FlowEvent)) error {
+	mc, ok := ins.pool.Get(clusterID)
+	if !ok {
+		return fmt.Errorf("cluster %s not connected", clusterID)
+	}
+
+	const window = 250 * time.Millisecond
+	const maxPerWindow = 12 // ~48 forwarded events/sec ceiling
+
+	var count int32
+	ticker := time.NewTicker(window)
+	defer ticker.Stop()
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				atomic.StoreInt32(&count, 0)
+			}
+		}
+	}()
+
+	sub, err := mc.NC.Subscribe(">", func(msg *natsgo.Msg) {
+		internal := isInternalSubject(msg.Subject)
+		// External-only (the default): drop NATS/JetStream internal plumbing
+		// ($SYS, $JS, $KV, request-reply _INBOX, …) so the topology shows just
+		// the messages real publishers/subscribers send & receive. When the
+		// client toggles "All traffic", includeInternal forwards everything.
+		if internal && !includeInternal {
+			return
+		}
+		// Over the per-window cap → drop. Still real traffic, just sampled.
+		if atomic.AddInt32(&count, 1) > maxPerWindow {
+			return
+		}
+		fn(FlowEvent{ClusterID: clusterID, Subject: msg.Subject, Size: len(msg.Data), Internal: internal})
+	})
+	if err != nil {
+		return fmt.Errorf("subscribe flow %q: %w", clusterID, err)
+	}
+
+	<-ctx.Done()
+	sub.Unsubscribe()
+	slog.Info("topology flow stopped", "cluster", clusterID)
 	return nil
 }
 

@@ -48,6 +48,10 @@ type Hub struct {
 	// Pluggable command handlers registered by API layer
 	handlers   map[string]CommandHandler
 	handlersMu sync.RWMutex
+
+	// Callbacks invoked when a client disconnects (for per-client cleanup)
+	disconnectFns []func(clientID string)
+	discMu        sync.RWMutex
 }
 
 type targetedMsg struct {
@@ -83,6 +87,25 @@ func (h *Hub) RegisterHandler(cmdType string, fn CommandHandler) {
 	h.handlersMu.Unlock()
 }
 
+// OnClientDisconnect registers a callback invoked (async) when a client's
+// WebSocket disconnects — used to tear down per-client subscriptions (tail,
+// replay, topology flow) so they don't leak when a tab closes.
+func (h *Hub) OnClientDisconnect(fn func(clientID string)) {
+	h.discMu.Lock()
+	h.disconnectFns = append(h.disconnectFns, fn)
+	h.discMu.Unlock()
+}
+
+func (h *Hub) notifyDisconnect(clientID string) {
+	h.discMu.RLock()
+	fns := make([]func(string), len(h.disconnectFns))
+	copy(fns, h.disconnectFns)
+	h.discMu.RUnlock()
+	for _, fn := range fns {
+		go fn(clientID)
+	}
+}
+
 // Run starts the hub event loop — call in a goroutine.
 func (h *Hub) Run() {
 	for {
@@ -95,11 +118,15 @@ func (h *Hub) Run() {
 
 		case client := <-h.unregister:
 			h.mu.Lock()
-			if _, ok := h.clients[client]; ok {
+			_, existed := h.clients[client]
+			if existed {
 				delete(h.clients, client)
 				close(client.send)
 			}
 			h.mu.Unlock()
+			if existed {
+				h.notifyDisconnect(client.id)
+			}
 			slog.Info("ws client disconnected", "id", client.id, "total", len(h.clients))
 
 		case req := <-h.subscribe:
@@ -344,7 +371,14 @@ func (c *Client) handleCommand(raw []byte) {
 		handler, ok := c.hub.handlers[cmd.Type]
 		c.hub.handlersMu.RUnlock()
 		if ok {
-			go handler(c.id, cmd.Payload)
+			// Dispatch synchronously so a single client's commands are processed
+			// in arrival order. readPump reads one message at a time, and every
+			// handler does quick setup then spawns its own goroutine for the
+			// long-running work — so this never blocks the read loop. (Using a
+			// goroutine here reordered stateful command pairs like
+			// flow.start→flow.stop→flow.start, which could land as
+			// start→start→stop and cancel the live subscription → no events.)
+			handler(c.id, cmd.Payload)
 		} else {
 			slog.Warn("unknown ws command", "type", cmd.Type, "id", c.id)
 			errMsg, _ := json.Marshal(map[string]any{

@@ -26,6 +26,10 @@ const (
 	EventTailStarted     = "tail.started"
 	EventTailStopped     = "tail.stopped"
 
+	// Topology live flow — lightweight, rate-capped sample of real messages
+	// crossing the wire, used to drive the 3D topology particle pulses.
+	EventTopologyFlow = "topology.flow"
+
 	// Replay events
 	EventReplayProgress = "replay.progress"
 	EventReplayDone     = "replay.done"
@@ -67,5 +71,7 @@ const (
 	CmdReplayStart      = "replay.start"
 	CmdReplayStop       = "replay.stop"
 	CmdMetricsWatch     = "metrics.watch"
+	CmdFlowStart        = "flow.start" // start topology live-flow sampling on ">"
+	CmdFlowStop         = "flow.stop"
 	CmdPing             = "ping"
 )

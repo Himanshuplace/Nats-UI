@@ -4,14 +4,16 @@
  * Uses Three.js via @react-three/fiber (lazy-loaded — ~600KB only fetched
  * when this view opens, keeping the initial bundle small).
  */
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Server } from 'lucide-react'
+import { Server, Cpu, Boxes, AlertTriangle, Check } from 'lucide-react'
 import { useDataStore, useUIStore } from '@/store'
 import { api } from '@/lib/api'
-import { HealthDot, Badge, Spinner } from '@/components/ui'
+import { HealthDot, Badge, Spinner, Button, cn } from '@/components/ui'
 import { formatNumber } from '@/lib/format'
 import type { ClusterInfo } from '@/types'
+
+const GPU_ACK_KEY = 'natsui-topology-gpu-ack'
 
 // Lazy-load the heavy Three.js scene so it doesn't block initial paint
 const TopologyScene = lazy(() =>
@@ -43,6 +45,12 @@ export function ClusterTopology({ clusterId }: ClusterTopologyProps) {
     if (fetchedCluster) setCluster(fetchedCluster)
   }, [fetchedCluster, setCluster])
 
+  // GPU gate — the 3D scene is WebGL/GPU-intensive, so confirm before mounting it.
+  // Persisted acks skip the prompt; otherwise it shows each time the view opens.
+  const [confirmed, setConfirmed] = useState<boolean>(() => {
+    try { return localStorage.getItem(GPU_ACK_KEY) === '1' } catch { return false }
+  })
+
   const targetClusters = clusterId
     ? (clusters[clusterId] ? [clusters[clusterId]] : [])
     : Object.values(clusters)
@@ -59,11 +67,85 @@ export function ClusterTopology({ clusterId }: ClusterTopologyProps) {
     )
   }
 
+  // Until confirmed, render the gate INSTEAD of the scene — this also prevents the
+  // heavy Three.js chunk from being fetched (lazy import loads on first render).
+  if (!confirmed) {
+    return (
+      <GpuGate
+        onConfirm={(remember) => {
+          if (remember) { try { localStorage.setItem(GPU_ACK_KEY, '1') } catch { /* ignore */ } }
+          setConfirmed(true)
+        }}
+      />
+    )
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {targetClusters.map(cluster => (
         <ClusterView key={cluster.id} cluster={cluster} />
       ))}
+    </div>
+  )
+}
+
+// ── GPU confirmation gate ───────────────────────────────────────────────────────
+
+function hasWebGL(): boolean {
+  try {
+    const c = document.createElement('canvas')
+    return !!(window.WebGLRenderingContext && (c.getContext('webgl') || c.getContext('experimental-webgl')))
+  } catch {
+    return false
+  }
+}
+
+function GpuGate({ onConfirm }: { onConfirm: (remember: boolean) => void }) {
+  const [remember, setRemember] = useState(false)
+  const webgl = useMemo(hasWebGL, [])
+
+  return (
+    <div className="flex-1 flex items-center justify-center bg-bg-base p-6">
+      <div className="surface-card w-full max-w-md p-7 text-center space-y-4 animate-fade-in">
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-accent-primary/10 border border-accent-primary/20 mx-auto">
+          <Boxes className="w-7 h-7 text-accent-primary" />
+        </div>
+
+        <div className="space-y-1.5">
+          <h2 className="text-lg font-sans font-semibold text-text-primary">Enter 3D Topology?</h2>
+          <p className="text-sm font-sans text-text-secondary leading-relaxed">
+            This view renders a real-time <span className="text-text-primary">WebGL 3D scene</span> of your cluster.
+            It's GPU-accelerated and can use noticeable CPU/GPU and battery — best on a machine with a GPU.
+          </p>
+        </div>
+
+        <div className={cn(
+          'flex items-center justify-center gap-2 text-xs font-mono px-3 py-2 rounded-lg border',
+          webgl
+            ? 'text-accent-green border-accent-green/20 bg-accent-green/5'
+            : 'text-accent-yellow border-accent-yellow/20 bg-accent-yellow/5',
+        )}>
+          {webgl
+            ? <><Check className="w-3.5 h-3.5 flex-shrink-0" /> WebGL detected — your browser can render this</>
+            : <><AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> WebGL not detected — it may not render</>}
+        </div>
+
+        <label className="flex items-center justify-center gap-2 text-xs font-sans text-text-muted cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={e => setRemember(e.target.checked)}
+            className="accent-accent-primary w-3.5 h-3.5"
+          />
+          Don't ask again on this device
+        </label>
+
+        <div className="pt-1">
+          <Button variant="primary" size="md" onClick={() => onConfirm(remember)} className="w-full justify-center">
+            <Cpu className="w-4 h-4" /> Enter 3D View
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }

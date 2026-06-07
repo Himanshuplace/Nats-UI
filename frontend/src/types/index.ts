@@ -253,12 +253,19 @@ export interface ConnectionProfile {
   id: string
   name: string
   url: string
+  // NATS auth — whatever the server requires
+  username?: string
+  password?: string
+  token?: string
   nkeyPath?: string
   credsPath?: string
   tlsCert?: string
   tlsKey?: string
   tlsCa?: string
-  token?: string
+  // browser-pasted credential contents (materialized to temp files server-side)
+  credsContent?: string
+  nkeySeed?: string
+  tlsCaContent?: string
 }
 
 // ── WebSocket protocol ────────────────────────────────────────────────────────
@@ -284,6 +291,7 @@ export type WSEventType =
   | 'replay.done'
   | 'metrics.throughput'
   | 'metrics.latency'
+  | 'topology.flow'
   | 'discovery.found'
   | 'discovery.lost'
   | 'discovery.scanned'
@@ -297,14 +305,66 @@ export type View =
   | 'topology'
   | 'streams'
   | 'consumers'
+  | 'kv'
   | 'tail'
   | 'browser'
   | 'publisher'
+  | 'request'
   | 'replay'
   | 'metrics'
   | 'dlq'
   | 'accounts'
   | 'settings'
+
+// ── Request–Reply ─────────────────────────────────────────────────────────────
+
+export interface RequestReplyRequest {
+  subject:   string
+  payload:   string
+  headers?:  Record<string, string>
+  timeoutMs: number
+}
+
+export interface RequestReplyResult {
+  subject?:      string
+  payload:       string
+  headers?:      Record<string, string>
+  size:          number
+  rttMs:         number
+  noResponders?: boolean
+  timedOut?:     boolean
+}
+
+// ── Key-Value store ───────────────────────────────────────────────────────────
+
+export interface KVBucketInfo {
+  bucket:   string
+  values:   number
+  history:  number
+  ttl:      number   // ns (0 = unlimited)
+  bytes:    number
+  replicas: number
+}
+
+export interface KVEntry {
+  bucket:    string
+  key:       string
+  value:     string
+  revision:  number
+  created:   string  // ISO timestamp
+  operation: 'PUT' | 'DELETE' | 'PURGE'
+  size:      number
+}
+
+export interface KVBucketConfig {
+  bucket:        string
+  description?:  string
+  history:       number
+  ttl:           number   // seconds (0 = unlimited)
+  storage:       'file' | 'memory'
+  replicas:      number
+  maxValueSize:  number   // bytes (0 = unlimited)
+}
 
 // ── Accounts & Users ──────────────────────────────────────────────────────────
 

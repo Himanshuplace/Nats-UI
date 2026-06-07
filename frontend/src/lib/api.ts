@@ -2,6 +2,8 @@ import type {
   ClusterInfo, StreamInfo, ConsumerInfo,
   ConnectionProfile, NATSServer, NATSAccount, NATSUser,
   StoredMessage, PublishRequest, PublishResult, SubjectInfo,
+  KVBucketInfo, KVEntry, KVBucketConfig,
+  RequestReplyRequest, RequestReplyResult,
 } from '@/types'
 import { getToken, clearToken } from './auth'
 
@@ -44,6 +46,7 @@ async function req<T>(method: string, path: string, body?: unknown, skipAuth = f
 
 const get  = <T>(path: string) => req<T>('GET', path)
 const post = <T>(path: string, body: unknown) => req<T>('POST', path, body)
+const put  = <T>(path: string, body?: unknown) => req<T>('PUT', path, body)
 const del  = <T>(path: string) => req<T>('DELETE', path)
 
 export const api = {
@@ -109,8 +112,27 @@ export const api = {
     list: (clusterId: string) => get<SubjectInfo[]>(`/clusters/${clusterId}/subjects`),
   },
 
+  kv: {
+    buckets:      (clusterId: string) => get<KVBucketInfo[]>(`/clusters/${clusterId}/kv`),
+    createBucket: (clusterId: string, cfg: KVBucketConfig) =>
+      post<KVBucketInfo>(`/clusters/${clusterId}/kv`, cfg),
+    deleteBucket: (clusterId: string, bucket: string) =>
+      del<void>(`/clusters/${clusterId}/kv/${encodeURIComponent(bucket)}`),
+    keys:    (clusterId: string, bucket: string) =>
+      get<KVEntry[]>(`/clusters/${clusterId}/kv/${encodeURIComponent(bucket)}/keys`),
+    history: (clusterId: string, bucket: string, key: string) =>
+      get<KVEntry[]>(`/clusters/${clusterId}/kv/${encodeURIComponent(bucket)}/history?key=${encodeURIComponent(key)}`),
+    put:     (clusterId: string, bucket: string, key: string, value: string) =>
+      put<{ revision: number }>(`/clusters/${clusterId}/kv/${encodeURIComponent(bucket)}/entry?key=${encodeURIComponent(key)}`, { value }),
+    delete:  (clusterId: string, bucket: string, key: string, purge = false) =>
+      del<void>(`/clusters/${clusterId}/kv/${encodeURIComponent(bucket)}/entry?key=${encodeURIComponent(key)}${purge ? '&purge=true' : ''}`),
+  },
+
   publish: (clusterId: string, req: PublishRequest) =>
     post<PublishResult>(`/clusters/${clusterId}/publish`, req),
+
+  request: (clusterId: string, req: RequestReplyRequest) =>
+    post<RequestReplyResult>(`/clusters/${clusterId}/request`, req),
 
   metrics: {
     throughput: (clusterId: string) => get<unknown>(`/clusters/${clusterId}/metrics/throughput`),

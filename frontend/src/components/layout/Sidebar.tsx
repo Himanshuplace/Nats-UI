@@ -1,19 +1,16 @@
-import { useCallback } from 'react'
+import { useCallback, useRef, useLayoutEffect } from 'react'
 import {
   Activity, Server, Layers, Users, Radio, RotateCcw,
-  BarChart2, AlertTriangle, Settings, ChevronLeft, ChevronRight,
-  Plus, Wifi, WifiOff, Shield, DatabaseZap, Send, LayoutDashboard,
+  BarChart2, AlertTriangle, Settings, ChevronRight,
+  Plus, Wifi, WifiOff, Shield, DatabaseZap, Send, LayoutDashboard, KeyRound, ArrowLeftRight,
 } from 'lucide-react'
 import { useUIStore, useDataStore } from '@/store'
 import { api } from '@/lib/api'
 import { HealthDot, Tooltip, cn } from '@/components/ui'
+import { gsap, slideIndicator } from '@/lib/gsap'
 import type { View } from '@/types'
 
-interface NavItem {
-  id: View
-  label: string
-  icon: React.ElementType
-}
+interface NavItem { id: View; label: string; icon: React.ElementType }
 
 const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   {
@@ -29,6 +26,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     items: [
       { id: 'streams',   label: 'Streams',          icon: Layers          },
       { id: 'consumers', label: 'Consumers',        icon: Users           },
+      { id: 'kv',        label: 'Key-Value',        icon: KeyRound        },
       { id: 'accounts',  label: 'Accounts',         icon: Shield          },
     ],
   },
@@ -38,6 +36,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { id: 'tail',      label: 'Live Tail',        icon: Radio           },
       { id: 'browser',   label: 'Message Browser',  icon: DatabaseZap     },
       { id: 'publisher', label: 'Publisher',        icon: Send            },
+      { id: 'request',   label: 'Request–Reply',    icon: ArrowLeftRight  },
       { id: 'replay',    label: 'Replay Studio',    icon: RotateCcw       },
     ],
   },
@@ -48,6 +47,9 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     ],
   },
 ]
+
+// Flat list for indicator math
+const ALL_NAV: NavItem[] = NAV_GROUPS.flatMap(g => g.items)
 
 export function Sidebar() {
   const activeView        = useUIStore(s => s.activeView)
@@ -60,16 +62,27 @@ export function Sidebar() {
   const discoveredServers = useDataStore(s => s.discoveredServers)
   const clusters          = useDataStore(s => s.clusters)
 
+  const navRef            = useRef<HTMLElement>(null)
+  const indicatorRef      = useRef<HTMLDivElement>(null)
+  const buttonRefs        = useRef<Map<View, HTMLElement>>(new Map())
+
+  const registerButton = useCallback((id: View, el: HTMLElement | null) => {
+    if (el) buttonRefs.current.set(id, el)
+    else    buttonRefs.current.delete(id)
+  }, [])
+
+  // Slide the lime indicator bar to the active nav item
+  useLayoutEffect(() => {
+    const target    = buttonRefs.current.get(activeView as View)
+    const container = navRef.current
+    slideIndicator(indicatorRef.current, target ?? null, container)
+  }, [activeView, collapsed])
+
   const connectDiscovered = useCallback(async (host: string, clientPort: number) => {
     try {
-      const res = await api.connections.connect({
-        name: `${host}:${clientPort}`,
-        url:  `nats://${host}:${clientPort}`,
-      })
+      const res = await api.connections.connect({ name: `${host}:${clientPort}`, url: `nats://${host}:${clientPort}` })
       setActiveCluster(res.id)
-    } catch (err) {
-      console.error('[sidebar] connect failed', err)
-    }
+    } catch { /* silent */ }
   }, [setActiveCluster])
 
   const connectedClusters = Object.values(clusters)
@@ -77,77 +90,93 @@ export function Sidebar() {
   return (
     <aside className={cn(
       'flex flex-col h-full flex-shrink-0 relative z-10 transition-all duration-200',
-      'bg-bg-base border-r border-bg-border',
+      'bg-bg-base border-r',
       collapsed ? 'w-12' : 'w-56',
-    )}>
-      {/* ── Logo / header ── */}
+    )}
+    style={{ borderColor: 'var(--surface-border)' }}
+    >
+      {/* ── Logo ── */}
       <div className={cn(
-        'flex items-center h-12 border-b border-bg-border flex-shrink-0',
-        collapsed ? 'justify-center px-2' : 'justify-between px-3',
-      )}>
+        'flex items-center h-11 border-b flex-shrink-0',
+        collapsed ? 'justify-center' : 'justify-between px-3',
+      )}
+      style={{ borderColor: 'var(--surface-border)' }}
+      >
         {!collapsed ? (
-          <div className="flex items-center gap-2.5">
-            <div className="w-6 h-6 rounded-[5px] bg-accent-primary flex items-center justify-center flex-shrink-0">
-              <span className="text-white text-xs font-bold font-sans">N</span>
+          <>
+            <div className="flex items-center gap-2">
+              <div
+                className="w-5 h-5 flex items-center justify-center"
+                style={{ background: 'var(--accent-primary)' }}
+              >
+                <span className="text-xs font-bold font-sans text-black leading-none">N</span>
+              </div>
+              <span className="font-sans font-semibold text-text-primary text-sm tracking-tight">
+                NatsUI
+              </span>
             </div>
-            <span className="font-sans font-semibold text-text-primary text-sm tracking-tight">NatsUI</span>
-          </div>
+            <button
+              onClick={toggleSidebar}
+              className="text-text-muted hover:text-text-secondary p-1 transition-colors"
+            >
+              <ChevronRight className="w-3 h-3 rotate-180" />
+            </button>
+          </>
         ) : (
-          <div className="w-6 h-6 rounded-[5px] bg-accent-primary flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-xs font-bold font-sans">N</span>
-          </div>
-        )}
-        {!collapsed && (
           <button
             onClick={toggleSidebar}
-            className="text-text-muted hover:text-text-secondary hover:bg-bg-hover p-1 rounded transition-colors"
-            title="Collapse sidebar"
+            className="w-5 h-5 flex items-center justify-center hover:opacity-80"
+            style={{ background: 'var(--accent-primary)' }}
           >
-            <ChevronLeft className="w-3.5 h-3.5" />
-          </button>
-        )}
-        {collapsed && (
-          <button
-            onClick={toggleSidebar}
-            className="absolute -right-3 top-8 z-20 w-5 h-5 rounded-full bg-bg-elevated border border-bg-border flex items-center justify-center text-text-muted hover:text-text-primary transition-colors"
-            title="Expand sidebar"
-          >
-            <ChevronRight className="w-2.5 h-2.5" />
+            <span className="text-xs font-bold font-sans text-black leading-none">N</span>
           </button>
         )}
       </div>
 
       {/* ── WS status ── */}
       <div className={cn(
-        'flex items-center gap-2 px-3 py-1.5 border-b border-bg-border',
+        'flex items-center gap-2 px-3 py-1.5 border-b',
         collapsed && 'justify-center px-0',
-      )}>
+      )}
+      style={{ borderColor: 'var(--surface-border)' }}
+      >
         {wsConnected
-          ? <Wifi className="w-3 h-3 text-accent-green flex-shrink-0" />
+          ? <Wifi className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--accent-primary)' }} />
           : <WifiOff className="w-3 h-3 text-accent-red flex-shrink-0 animate-pulse" />
         }
         {!collapsed && (
-          <span className={cn(
-            'text-xs font-sans',
-            wsConnected ? 'text-accent-green' : 'text-text-muted',
-          )}>
+          <span className={cn('text-xs font-sans', wsConnected ? '' : 'text-text-muted')}
+                style={wsConnected ? { color: 'var(--accent-primary)' } : {}}>
             {wsConnected ? 'Connected' : 'Connecting…'}
           </span>
         )}
       </div>
 
       {/* ── Navigation ── */}
-      <nav className="flex-1 overflow-y-auto py-1.5">
+      <nav ref={navRef} className="flex-1 overflow-y-auto py-1.5 relative select-none">
+        {/* GSAP sliding active indicator */}
+        <div
+          ref={indicatorRef}
+          className="absolute left-0 w-[2px] pointer-events-none transition-none"
+          style={{
+            background:     'var(--accent-primary)',
+            top:            0,
+            height:         32,
+            boxShadow:      '2px 0 8px var(--accent-primary)',
+            willChange:     'transform',
+          }}
+        />
+
         {NAV_GROUPS.map((group, gi) => (
           <div key={group.label} className={gi > 0 ? 'mt-1' : ''}>
-            {/* Section label */}
             {!collapsed && (
-              <p className="px-3 pt-2 pb-0.5 text-2xs font-sans font-medium uppercase tracking-wider text-text-muted/60">
+              <p className="px-3 pt-2 pb-0.5 text-2xs font-sans font-medium uppercase tracking-wider"
+                 style={{ color: 'rgba(255,255,255,0.2)' }}>
                 {group.label}
               </p>
             )}
             {collapsed && gi > 0 && (
-              <div className="mx-2 my-1.5 h-px bg-bg-border" />
+              <div className="mx-2 my-1.5 h-px" style={{ background: 'var(--surface-border)' }} />
             )}
 
             {group.items.map(item => {
@@ -156,28 +185,28 @@ export function Sidebar() {
               return (
                 <Tooltip key={item.id} content={collapsed ? item.label : undefined} side="right">
                   <button
+                    ref={el => registerButton(item.id, el)}
                     onClick={() => setView(item.id)}
+                    onMouseEnter={e => {
+                      if (!active) gsap.to(e.currentTarget, { x: 2, duration: 0.12, ease: 'power2.out' })
+                    }}
+                    onMouseLeave={e => {
+                      if (!active) gsap.to(e.currentTarget, { x: 0, duration: 0.12, ease: 'power2.out' })
+                    }}
                     className={cn(
-                      'w-full flex items-center transition-colors duration-100 text-left relative rounded-none',
+                      'w-full flex items-center transition-colors duration-100 text-left relative',
                       collapsed ? 'justify-center py-2.5' : 'gap-2.5 px-3 py-1.5',
-                      active
-                        ? 'bg-accent-primary/8 text-accent-primary'
-                        : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover',
                     )}
+                    style={{
+                      color: active
+                        ? 'var(--accent-primary)'
+                        : 'rgba(255,255,255,0.4)',
+                      background: active ? 'rgba(var(--accent-primary-rgb) / 0.08)' : 'transparent',
+                    }}
                   >
-                    {/* Active indicator bar */}
-                    {active && (
-                      <span className="absolute left-0 top-1 bottom-1 w-[2px] bg-accent-primary rounded-r-full" />
-                    )}
-                    <Icon className={cn(
-                      'w-[15px] h-[15px] flex-shrink-0',
-                      active ? 'text-accent-primary' : 'text-text-muted',
-                    )} />
+                    <Icon className="w-[15px] h-[15px] flex-shrink-0" />
                     {!collapsed && (
-                      <span className={cn(
-                        'text-[13px] font-sans',
-                        active ? 'text-accent-primary font-medium' : 'text-text-secondary',
-                      )}>
+                      <span className="text-[13px] font-sans" style={{ fontWeight: active ? 500 : 400 }}>
                         {item.label}
                       </span>
                     )}
@@ -188,60 +217,60 @@ export function Sidebar() {
           </div>
         ))}
 
-        {/* ── Connected clusters ── */}
+        {/* Clusters */}
         {!collapsed && connectedClusters.length > 0 && (
           <div className="mt-2">
-            <div className="mx-3 mb-1 h-px bg-bg-border" />
-            <p className="px-3 pb-0.5 text-2xs font-sans font-medium uppercase tracking-wider text-text-muted/60">
+            <div className="mx-3 my-1 h-px" style={{ background: 'var(--surface-border)' }} />
+            <p className="px-3 pb-0.5 text-2xs font-sans font-medium uppercase tracking-wider"
+               style={{ color: 'rgba(255,255,255,0.2)' }}>
               Clusters
             </p>
             {connectedClusters.map(cluster => (
-              <div
-                key={cluster.id}
-                className="flex items-center gap-2 px-3 py-1.5 hover:bg-bg-hover cursor-pointer transition-colors"
-              >
+              <div key={cluster.id} className="flex items-center gap-2 px-3 py-1.5 cursor-default"
+                   style={{ color: 'rgba(255,255,255,0.5)' }}>
                 <HealthDot health={cluster.health} size="xs" />
-                <span className="flex-1 text-[13px] font-sans text-text-secondary truncate">{cluster.name}</span>
-                <span className="text-2xs font-mono text-text-muted tabular-nums">{cluster.numNodes}n</span>
+                <span className="flex-1 text-[13px] font-sans truncate">{cluster.name}</span>
+                <span className="text-2xs font-mono tabular-nums">{cluster.numNodes}n</span>
               </div>
             ))}
           </div>
         )}
 
-        {/* ── Discovered servers ── */}
+        {/* Discovered */}
         {!collapsed && discoveredServers.length > 0 && (
           <div className="mt-1">
-            <div className="mx-3 my-1 h-px bg-bg-border" />
-            <p className="px-3 pb-0.5 text-2xs font-sans font-medium uppercase tracking-wider text-text-muted/60">
-              Discovered
-            </p>
+            <div className="mx-3 my-1 h-px" style={{ background: 'var(--surface-border)' }} />
             {discoveredServers.slice(0, 5).map(s => (
               <div
                 key={s.id}
                 onClick={() => connectDiscovered(s.host, s.clientPort)}
-                className="flex items-center gap-2 px-3 py-1.5 hover:bg-bg-hover cursor-pointer group transition-colors"
-                title={`Connect to ${s.host}:${s.clientPort}`}
+                className="flex items-center gap-2 px-3 py-1.5 cursor-pointer group"
+                style={{ color: 'rgba(255,255,255,0.3)' }}
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-nats-primary flex-shrink-0" />
-                <span className="flex-1 text-[13px] font-mono text-text-muted truncate">
+                <div className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                     style={{ background: 'var(--accent-primary)' }} />
+                <span className="flex-1 text-xs font-mono truncate">
                   {s.host}:{s.clientPort}
                 </span>
-                <Plus className="w-3 h-3 text-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
+                <Plus className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
             ))}
           </div>
         )}
       </nav>
 
-      {/* ── Bottom actions ── */}
-      <div className="border-t border-bg-border py-1">
+      {/* ── Bottom ── */}
+      <div className="border-t py-1" style={{ borderColor: 'var(--surface-border)' }}>
         <Tooltip content={collapsed ? 'Command Palette  ⌘K' : undefined} side="right">
           <button
             onClick={openCmdPalette}
             className={cn(
-              'w-full flex items-center gap-2.5 transition-colors text-text-muted hover:text-text-secondary hover:bg-bg-hover',
+              'w-full flex items-center gap-2.5 transition-colors',
               collapsed ? 'justify-center py-2.5' : 'px-3 py-1.5',
             )}
+            style={{ color: 'rgba(255,255,255,0.35)' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.7)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.35)')}
           >
             <Activity className="w-[15px] h-[15px] flex-shrink-0" />
             {!collapsed && (
@@ -258,24 +287,20 @@ export function Sidebar() {
 
         <Tooltip content={collapsed ? 'Settings' : undefined} side="right">
           <button
+            ref={el => registerButton('settings', el)}
             onClick={() => setView('settings')}
             className={cn(
               'w-full flex items-center gap-2.5 transition-colors relative',
               collapsed ? 'justify-center py-2.5' : 'px-3 py-1.5',
-              activeView === 'settings'
-                ? 'bg-accent-primary/8 text-accent-primary'
-                : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover',
             )}
+            style={{
+              color:      activeView === 'settings' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.35)',
+              background: activeView === 'settings' ? 'rgba(var(--accent-primary-rgb) / 0.08)' : 'transparent',
+            }}
           >
-            {activeView === 'settings' && (
-              <span className="absolute left-0 top-1 bottom-1 w-[2px] bg-accent-primary rounded-r-full" />
-            )}
-            <Settings className={cn('w-[15px] h-[15px] flex-shrink-0', activeView === 'settings' ? 'text-accent-primary' : '')} />
+            <Settings className="w-[15px] h-[15px] flex-shrink-0" />
             {!collapsed && (
-              <span className={cn(
-                'text-[13px] font-sans',
-                activeView === 'settings' ? 'text-accent-primary font-medium' : '',
-              )}>
+              <span className="text-[13px] font-sans" style={{ fontWeight: activeView === 'settings' ? 500 : 400 }}>
                 Settings
               </span>
             )}

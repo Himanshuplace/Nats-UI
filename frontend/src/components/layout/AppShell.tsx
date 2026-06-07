@@ -4,6 +4,7 @@ import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { CommandPalette } from './CommandPalette'
 import { ParticleBackground } from '@/components/three/ParticleBackground'
+import { NatsAuthFields, emptyNatsAuth, authToProfile, type NatsAuth } from '@/components/auth/NatsAuthFields'
 import { useUIStore } from '@/store'
 import { Spinner } from '@/components/ui'
 import { animateViewIn } from '@/lib/gsap'
@@ -47,9 +48,11 @@ class ViewErrorBoundary extends Component<{ children: ReactNode }, EBState> {
 const ClusterTopology   = lazy(() => import('@/components/cluster/ClusterTopology').then(m => ({ default: m.ClusterTopology })))
 const StreamExplorer    = lazy(() => import('@/components/streams/StreamExplorer').then(m => ({ default: m.StreamExplorer })))
 const ConsumerInspector = lazy(() => import('@/components/consumers/ConsumerInspector').then(m => ({ default: m.ConsumerInspector })))
+const KVManager         = lazy(() => import('@/components/kv/KVManager').then(m => ({ default: m.KVManager })))
 const MessageTail       = lazy(() => import('@/components/tail/MessageTail').then(m => ({ default: m.MessageTail })))
 const MessageBrowser    = lazy(() => import('@/components/tail/MessageBrowser').then(m => ({ default: m.MessageBrowser })))
 const MessagePublisher  = lazy(() => import('@/components/publisher/MessagePublisher').then(m => ({ default: m.MessagePublisher })))
+const RequestReplyConsole = lazy(() => import('@/components/request/RequestReplyConsole').then(m => ({ default: m.RequestReplyConsole })))
 const ReplayStudio      = lazy(() => import('@/components/replay/ReplayStudio').then(m => ({ default: m.ReplayStudio })))
 const MetricsDashboard  = lazy(() => import('@/components/metrics/MetricsDashboard').then(m => ({ default: m.MetricsDashboard })))
 const AccountsView      = lazy(() => import('@/components/accounts/AccountsView').then(m => ({ default: m.AccountsView })))
@@ -220,7 +223,7 @@ function ConnectionList() {
             <p className="text-2xs font-mono text-text-muted truncate">{c.url}</p>
           </div>
           {c.jetstream && (
-            <span className="text-2xs font-mono px-1.5 py-0.5 rounded bg-accent-cyan/10 text-accent-cyan border border-accent-cyan/20 flex-shrink-0">
+            <span className="text-2xs font-mono px-1.5 py-0.5 rounded bg-accent-primary/10 text-accent-primary border border-accent-primary/20 flex-shrink-0">
               JS
             </span>
           )}
@@ -242,6 +245,7 @@ function ConnectForm() {
   const setActive = useUIStore(s => s.setActiveCluster)
   const [status, setStatus]   = useState<{ ok: boolean; msg: string } | null>(null)
   const [loading, setLoading] = useState(false)
+  const [auth, setAuth]       = useState<NatsAuth>(emptyNatsAuth)
 
   const handleConnect = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -258,7 +262,7 @@ function ConnectForm() {
     setLoading(true)
     setStatus(null)
     try {
-      const res = await api.connections.connect({ name, url })
+      const res = await api.connections.connect({ name, url, ...authToProfile(auth) })
       setActive(res.id)
       setStatus({ ok: true, msg: `Connected — JetStream: ${res.jetstream}` })
     } catch (err: any) {
@@ -289,11 +293,12 @@ function ConnectForm() {
           />
         </div>
       </div>
+      <NatsAuthFields value={auth} onChange={setAuth} disabled={loading} />
       <div className="flex items-center gap-3 pt-1">
         <button
           type="submit"
           disabled={loading}
-          className="px-4 py-2 bg-accent-cyan text-bg-base text-xs font-mono font-semibold rounded-lg hover:bg-accent-cyan/90 disabled:opacity-50 transition-colors"
+          className="px-4 py-2 bg-accent-primary text-bg-base text-xs font-mono font-semibold rounded-lg hover:bg-accent-primary/90 disabled:opacity-50 transition-colors"
         >
           {loading ? 'Connecting…' : 'Connect'}
         </button>
@@ -325,9 +330,11 @@ export function AppShell() {
       case 'topology':  return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><ClusterTopology /></ViewErrorBoundary></Suspense>
       case 'streams':   return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><StreamExplorer /></ViewErrorBoundary></Suspense>
       case 'consumers': return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><ConsumerInspector /></ViewErrorBoundary></Suspense>
+      case 'kv':        return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><KVManager /></ViewErrorBoundary></Suspense>
       case 'tail':      return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><MessageTail /></ViewErrorBoundary></Suspense>
       case 'browser':   return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><MessageBrowser /></ViewErrorBoundary></Suspense>
       case 'publisher': return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><MessagePublisher /></ViewErrorBoundary></Suspense>
+      case 'request':   return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><RequestReplyConsole /></ViewErrorBoundary></Suspense>
       case 'replay':    return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><ReplayStudio /></ViewErrorBoundary></Suspense>
       case 'metrics':   return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><MetricsDashboard /></ViewErrorBoundary></Suspense>
       case 'accounts':  return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><AccountsView /></ViewErrorBoundary></Suspense>

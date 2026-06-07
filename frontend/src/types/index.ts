@@ -314,6 +314,7 @@ export type View =
   | 'lab'
   | 'metrics'
   | 'services'
+  | 'health'
   | 'dlq'
   | 'accounts'
   | 'settings'

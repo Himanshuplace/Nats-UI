@@ -19,6 +19,7 @@ const VIEW_LABELS: Record<View, string> = {
   lab:        'Consumer Lab',
   metrics:    'Metrics Dashboard',
   services:   'Services',
+  health:     'Health & Alerts',
   accounts:   'Accounts & Users',
   dlq:        'Dead Letter Queue',
   settings:   'Settings',

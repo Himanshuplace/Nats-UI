@@ -414,6 +414,49 @@ type RTTResult struct {
 	Error        string  `json:"error,omitempty"`
 }
 
+// ── Stream backup / restore ───────────────────────────────────────────────────
+
+// StreamBackup is a portable, logical snapshot of a stream: its config plus all
+// (or a capped window of) stored messages. Restore republishes the messages, so
+// subjects/headers/payloads are preserved exactly while sequence numbers and
+// timestamps are reassigned by the server — it's a logical copy, not a
+// byte-exact server snapshot.
+type StreamBackup struct {
+	Version      int             `json:"version"`
+	Stream       string          `json:"stream"`
+	CapturedAt   time.Time       `json:"capturedAt"`
+	Config       StreamConfig    `json:"config"`
+	MessageCount int             `json:"messageCount"`
+	Truncated    bool            `json:"truncated,omitempty"`
+	Messages     []BackupMessage `json:"messages"`
+}
+
+// BackupMessage is one stored message in a StreamBackup. Data is base64-encoded.
+type BackupMessage struct {
+	Subject string            `json:"subject"`
+	Seq     uint64            `json:"seq"`
+	Time    time.Time         `json:"time"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Data    string            `json:"data"`
+}
+
+// RestoreRequest — body for POST /clusters/{id}/restore.
+type RestoreRequest struct {
+	TargetStream string       `json:"targetStream,omitempty"` // default = backup.Stream
+	CreateStream bool         `json:"createStream"`           // create from backup.Config if missing
+	Backup       StreamBackup `json:"backup"`
+}
+
+// RestoreResult — response from POST /clusters/{id}/restore.
+type RestoreResult struct {
+	TargetStream  string `json:"targetStream"`
+	StreamCreated bool   `json:"streamCreated"`
+	Total         int    `json:"total"`
+	Restored      int    `json:"restored"`
+	Failed        int    `json:"failed"`
+	Error         string `json:"error,omitempty"`
+}
+
 // ── Metrics ───────────────────────────────────────────────────────────────────
 
 type ThroughputPoint struct {

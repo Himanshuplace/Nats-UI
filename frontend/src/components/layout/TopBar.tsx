@@ -22,6 +22,7 @@ const VIEW_LABELS: Record<View, string> = {
   services:   'Services',
   health:     'Health & Alerts',
   latency:    'Server Latency',
+  backup:     'Backup & Restore',
   accounts:   'Accounts & Users',
   dlq:        'Dead Letter Queue',
   settings:   'Settings',

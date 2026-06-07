@@ -60,6 +60,7 @@ const MetricsDashboard  = lazy(() => import('@/components/metrics/MetricsDashboa
 const ServicesExplorer  = lazy(() => import('@/components/services/ServicesExplorer').then(m => ({ default: m.ServicesExplorer })))
 const HealthPanel       = lazy(() => import('@/components/health/HealthPanel').then(m => ({ default: m.HealthPanel })))
 const ServerLatency     = lazy(() => import('@/components/latency/ServerLatency').then(m => ({ default: m.ServerLatency })))
+const StreamBackupView  = lazy(() => import('@/components/backup/StreamBackupRestore').then(m => ({ default: m.StreamBackupRestore })))
 const AccountsView      = lazy(() => import('@/components/accounts/AccountsView').then(m => ({ default: m.AccountsView })))
 
 function ViewFallback() {
@@ -347,6 +348,7 @@ export function AppShell() {
       case 'services':  return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><ServicesExplorer /></ViewErrorBoundary></Suspense>
       case 'health':    return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><HealthPanel /></ViewErrorBoundary></Suspense>
       case 'latency':   return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><ServerLatency /></ViewErrorBoundary></Suspense>
+      case 'backup':    return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><StreamBackupView /></ViewErrorBoundary></Suspense>
       case 'accounts':  return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><AccountsView /></ViewErrorBoundary></Suspense>
       case 'dlq':       return <DLQPlaceholder />
       case 'settings':  return <SettingsView />

@@ -96,6 +96,10 @@ func Mount(r chi.Router, hub *gateway.Hub, pool *natsmgr.Pool, dm *discovery.Man
 		r.Post("/clusters/{id}/publish", h.publish)
 		r.Post("/clusters/{id}/request", h.request)
 
+		// Stream backup / restore (logical: config + messages)
+		r.Get("/clusters/{id}/streams/{stream}/backup", h.backupStream)
+		r.Post("/clusters/{id}/restore", h.restoreStream)
+
 		// Subjects
 		r.Get("/clusters/{id}/subjects", h.listSubjects)
 
@@ -780,6 +784,38 @@ func (h *handler) request(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := h.inspector.RequestReply(r.Context(), id, req)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// ── Stream backup / restore ──────────────────────────────────────────────────
+
+func (h *handler) backupStream(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	stream := chi.URLParam(r, "stream")
+	backup, err := h.inspector.BackupStream(r.Context(), id, stream)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, backup)
+}
+
+func (h *handler) restoreStream(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req types.RestoreRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.TargetStream == "" && req.Backup.Stream == "" {
+		writeError(w, http.StatusBadRequest, "targetStream is required")
+		return
+	}
+	result, err := h.inspector.RestoreStream(r.Context(), id, req)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return

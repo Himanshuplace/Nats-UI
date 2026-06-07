@@ -317,6 +317,7 @@ export type View =
   | 'services'
   | 'health'
   | 'latency'
+  | 'backup'
   | 'dlq'
   | 'accounts'
   | 'settings'
@@ -360,6 +361,41 @@ export interface RTTResult {
   minMs?:        number
   avgMs?:        number
   maxMs?:        number
+  error?:        string
+}
+
+// ── Stream backup / restore ───────────────────────────────────────────────────
+
+export interface BackupMessage {
+  subject:  string
+  seq:      number
+  time:     string
+  headers?: Record<string, string>
+  data:     string // base64
+}
+
+export interface StreamBackup {
+  version:      number
+  stream:       string
+  capturedAt:   string
+  config:       StreamConfig
+  messageCount: number
+  truncated?:   boolean
+  messages:     BackupMessage[]
+}
+
+export interface RestoreRequest {
+  targetStream?: string
+  createStream:  boolean
+  backup:        StreamBackup
+}
+
+export interface RestoreResult {
+  targetStream:  string
+  streamCreated: boolean
+  total:         number
+  restored:      number
+  failed:        number
   error?:        string
 }
 

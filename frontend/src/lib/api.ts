@@ -8,6 +8,7 @@ import type {
   ServiceInfo, ServicePingResult,
   DebugFetchResult,
   RTTResult,
+  StreamBackup, RestoreRequest, RestoreResult,
 } from '@/types'
 import { getToken, clearToken } from './auth'
 
@@ -100,6 +101,10 @@ export const api = {
       const qs = p.toString() ? `?${p}` : ''
       return get<StoredMessage[]>(`/clusters/${clusterId}/streams/${stream}/messages${qs}`)
     },
+    backup:  (clusterId: string, stream: string) =>
+      get<StreamBackup>(`/clusters/${clusterId}/streams/${stream}/backup`),
+    restore: (clusterId: string, req: RestoreRequest) =>
+      post<RestoreResult>(`/clusters/${clusterId}/restore`, req),
   },
 
   consumers: {

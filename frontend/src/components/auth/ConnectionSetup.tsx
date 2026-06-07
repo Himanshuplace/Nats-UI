@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Server, ArrowRight, CheckCircle } from 'lucide-react'
 import { api } from '@/lib/api'
 import { ParticleBackground } from '@/components/three/ParticleBackground'
+import { NatsAuthFields, emptyNatsAuth, authToProfile, type NatsAuth } from './NatsAuthFields'
 
 interface Props {
   onConnected: (clusterId: string) => void
@@ -20,6 +21,7 @@ function normalizeNatsURL(input: string): string {
 export function ConnectionSetup({ onConnected }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [auth, setAuth] = useState<NatsAuth>(emptyNatsAuth)
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -37,7 +39,7 @@ export function ConnectionSetup({ onConnected }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const res = await api.connections.connect({ name, url })
+      const res = await api.connections.connect({ name, url, ...authToProfile(auth) })
       onConnected(res.id)
     } catch (err: any) {
       setError(err.message ?? 'Connection failed')
@@ -104,6 +106,10 @@ export function ConnectionSetup({ onConnected }: Props) {
                   </div>
                 ))}
               </div>
+            </div>
+
+            <div className="border-t border-bg-border pt-4">
+              <NatsAuthFields value={auth} onChange={setAuth} disabled={loading} />
             </div>
 
             {error && (

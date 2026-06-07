@@ -16,6 +16,7 @@ const VIEW_LABELS: Record<View, string> = {
   publisher:  'Publish Message',
   request:    'Request–Reply',
   replay:     'Replay Studio',
+  lab:        'Consumer Lab',
   metrics:    'Metrics Dashboard',
   services:   'Services',
   accounts:   'Accounts & Users',

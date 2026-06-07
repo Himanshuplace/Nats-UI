@@ -102,6 +102,10 @@ func Mount(r chi.Router, hub *gateway.Hub, pool *natsmgr.Pool, dm *discovery.Man
 		r.Get("/clusters/{id}/services", h.listServices)
 		r.Get("/clusters/{id}/services/ping", h.pingServices)
 
+		// Pull-consumer debugger (fetch + ack/nak/term)
+		r.Post("/clusters/{id}/debug/fetch", h.debugFetch)
+		r.Post("/clusters/{id}/debug/ack", h.debugAck)
+
 		// Key-Value (keys via ?key= query param)
 		r.Get("/clusters/{id}/kv", h.listKVBuckets)
 		r.Post("/clusters/{id}/kv", h.createKVBucket)
@@ -793,6 +797,41 @@ func (h *handler) pingServices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// ── Pull-consumer debugger ──────────────────────────────────────────────────────
+
+func (h *handler) debugFetch(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req types.DebugFetchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Stream == "" || req.Consumer == "" {
+		writeError(w, http.StatusBadRequest, "stream and consumer are required")
+		return
+	}
+	res, err := h.inspector.DebugFetch(r.Context(), id, req.Stream, req.Consumer, req.Batch)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (h *handler) debugAck(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req types.DebugAckRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := h.inspector.DebugAck(r.Context(), id, req.SessionID, req.MessageID, req.Action); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *handler) listSubjects(w http.ResponseWriter, r *http.Request) {

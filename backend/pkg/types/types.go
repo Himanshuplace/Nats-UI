@@ -280,6 +280,42 @@ type ServicePingResult struct {
 	MaxMs     float64 `json:"maxMs"`
 }
 
+// ── Pull-consumer debugger ──────────────────────────────────────────────────────
+
+// DebugMessage is one fetched (but not yet acked) message from a pull consumer.
+type DebugMessage struct {
+	ID           string            `json:"id"`
+	Subject      string            `json:"subject"`
+	StreamSeq    uint64            `json:"streamSeq"`
+	ConsumerSeq  uint64            `json:"consumerSeq"`
+	NumDelivered uint64            `json:"numDelivered"`
+	Timestamp    time.Time         `json:"timestamp"`
+	Payload      string            `json:"payload"`
+	Size         int               `json:"size"`
+	Headers      map[string]string `json:"headers,omitempty"`
+}
+
+// DebugFetchRequest — body for POST /clusters/{id}/debug/fetch.
+type DebugFetchRequest struct {
+	Stream   string `json:"stream"`
+	Consumer string `json:"consumer"`
+	Batch    int    `json:"batch"`
+}
+
+// DebugFetchResult — response from a fetch; SessionID ties messages to their
+// ack subjects for the follow-up ack/nak/term call.
+type DebugFetchResult struct {
+	SessionID string         `json:"sessionId"`
+	Messages  []DebugMessage `json:"messages"`
+}
+
+// DebugAckRequest — body for POST /clusters/{id}/debug/ack.
+type DebugAckRequest struct {
+	SessionID string `json:"sessionId"`
+	MessageID string `json:"messageId"`
+	Action    string `json:"action"` // ack | nak | term
+}
+
 // ── Key-Value store ─────────────────────────────────────────────────────────────
 
 // KVBucketInfo summarizes a JetStream KV bucket (backed by a KV_* stream).

@@ -311,6 +311,7 @@ export type View =
   | 'publisher'
   | 'request'
   | 'replay'
+  | 'lab'
   | 'metrics'
   | 'services'
   | 'dlq'
@@ -344,6 +345,25 @@ export interface ServicePingResult {
   minMs:     number
   avgMs:     number
   maxMs:     number
+}
+
+// ── Pull-consumer debugger ────────────────────────────────────────────────────
+
+export interface DebugMessage {
+  id:           string
+  subject:      string
+  streamSeq:    number
+  consumerSeq:  number
+  numDelivered: number
+  timestamp:    string
+  payload:      string
+  size:         number
+  headers?:     Record<string, string>
+}
+
+export interface DebugFetchResult {
+  sessionId: string
+  messages:  DebugMessage[]
 }
 
 // ── Request–Reply ─────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -17,10 +18,18 @@ import (
 // Inspector provides read access to JetStream state on a managed connection.
 type Inspector struct {
 	pool *natsmgr.Pool
+
+	// Short-lived consumer-debugger sessions: map fetched-message IDs to their
+	// JetStream ack reply subjects so a later Ack/Nak/Term call can find them.
+	debugMu       sync.Mutex
+	debugSessions map[string]*debugSession
 }
 
 func NewInspector(pool *natsmgr.Pool) *Inspector {
-	return &Inspector{pool: pool}
+	return &Inspector{
+		pool:          pool,
+		debugSessions: make(map[string]*debugSession),
+	}
 }
 
 // ── Streams ───────────────────────────────────────────────────────────────────

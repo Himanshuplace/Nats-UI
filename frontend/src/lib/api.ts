@@ -5,6 +5,7 @@ import type {
   KVBucketInfo, KVEntry, KVBucketConfig,
   RequestReplyRequest, RequestReplyResult,
   ServiceInfo, ServicePingResult,
+  DebugFetchResult,
 } from '@/types'
 import { getToken, clearToken } from './auth'
 
@@ -138,6 +139,13 @@ export const api = {
   services: {
     list: (clusterId: string) => get<ServiceInfo[]>(`/clusters/${clusterId}/services`),
     ping: (clusterId: string) => get<ServicePingResult>(`/clusters/${clusterId}/services/ping`),
+  },
+
+  debug: {
+    fetch: (clusterId: string, stream: string, consumer: string, batch: number) =>
+      post<DebugFetchResult>(`/clusters/${clusterId}/debug/fetch`, { stream, consumer, batch }),
+    ack: (clusterId: string, sessionId: string, messageId: string, action: 'ack' | 'nak' | 'term') =>
+      post<void>(`/clusters/${clusterId}/debug/ack`, { sessionId, messageId, action }),
   },
 
   metrics: {

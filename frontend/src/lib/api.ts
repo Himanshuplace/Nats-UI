@@ -3,6 +3,7 @@ import type {
   ConnectionProfile, NATSServer, NATSAccount, NATSUser,
   StoredMessage, PublishRequest, PublishResult, SubjectInfo,
   KVBucketInfo, KVEntry, KVBucketConfig,
+  ObjectBucketInfo, ObjectEntry, ObjectData, ObjectBucketConfig,
   RequestReplyRequest, RequestReplyResult,
   ServiceInfo, ServicePingResult,
   DebugFetchResult,
@@ -128,6 +129,20 @@ export const api = {
       put<{ revision: number }>(`/clusters/${clusterId}/kv/${encodeURIComponent(bucket)}/entry?key=${encodeURIComponent(key)}`, { value }),
     delete:  (clusterId: string, bucket: string, key: string, purge = false) =>
       del<void>(`/clusters/${clusterId}/kv/${encodeURIComponent(bucket)}/entry?key=${encodeURIComponent(key)}${purge ? '&purge=true' : ''}`),
+  },
+
+  obj: {
+    buckets:      (clusterId: string) => get<ObjectBucketInfo[]>(`/clusters/${clusterId}/obj`),
+    createBucket: (clusterId: string, cfg: ObjectBucketConfig) => post<ObjectBucketInfo>(`/clusters/${clusterId}/obj`, cfg),
+    deleteBucket: (clusterId: string, bucket: string) => del<void>(`/clusters/${clusterId}/obj/${encodeURIComponent(bucket)}`),
+    objects: (clusterId: string, bucket: string) =>
+      get<ObjectEntry[]>(`/clusters/${clusterId}/obj/${encodeURIComponent(bucket)}/objects`),
+    get: (clusterId: string, bucket: string, name: string) =>
+      get<ObjectData>(`/clusters/${clusterId}/obj/${encodeURIComponent(bucket)}/object?name=${encodeURIComponent(name)}`),
+    put: (clusterId: string, bucket: string, name: string, body: { text?: string; base64?: string }) =>
+      put<ObjectEntry>(`/clusters/${clusterId}/obj/${encodeURIComponent(bucket)}/object?name=${encodeURIComponent(name)}`, body),
+    delete: (clusterId: string, bucket: string, name: string) =>
+      del<void>(`/clusters/${clusterId}/obj/${encodeURIComponent(bucket)}/object?name=${encodeURIComponent(name)}`),
   },
 
   publish: (clusterId: string, req: PublishRequest) =>

@@ -11,6 +11,7 @@ const VIEW_LABELS: Record<View, string> = {
   streams:    'Stream Explorer',
   consumers:  'Consumer Inspector',
   kv:         'Key-Value Store',
+  objects:    'Object Store',
   tail:       'Live Tail',
   browser:    'Message Browser',
   publisher:  'Publish Message',

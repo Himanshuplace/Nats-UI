@@ -306,6 +306,7 @@ export type View =
   | 'streams'
   | 'consumers'
   | 'kv'
+  | 'objects'
   | 'tail'
   | 'browser'
   | 'publisher'
@@ -415,6 +416,42 @@ export interface KVBucketConfig {
   storage:       'file' | 'memory'
   replicas:      number
   maxValueSize:  number   // bytes (0 = unlimited)
+}
+
+// ── Object store ──────────────────────────────────────────────────────────────
+
+export interface ObjectBucketInfo {
+  bucket:       string
+  description?: string
+  size:         number
+  ttl:          number   // ns (0 = unlimited)
+  replicas:     number
+}
+
+export interface ObjectEntry {
+  name:         string
+  description?: string
+  bucket:       string
+  size:         number
+  chunks:       number
+  modTime:      string
+  digest?:      string
+  headers?:     Record<string, string>
+}
+
+export interface ObjectData {
+  name:      string
+  size:      number
+  base64:    string
+  tooLarge?: boolean
+}
+
+export interface ObjectBucketConfig {
+  bucket:       string
+  description?: string
+  ttl:          number   // seconds (0 = unlimited)
+  storage:      'file' | 'memory'
+  replicas:     number
 }
 
 // ── Accounts & Users ──────────────────────────────────────────────────────────

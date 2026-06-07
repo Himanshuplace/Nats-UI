@@ -355,6 +355,53 @@ type KVPutRequest struct {
 	Value string `json:"value"`
 }
 
+// ── Object store ────────────────────────────────────────────────────────────────
+
+// ObjectBucketInfo summarizes a JetStream Object Store bucket.
+type ObjectBucketInfo struct {
+	Bucket      string `json:"bucket"`
+	Description string `json:"description,omitempty"`
+	Size        uint64 `json:"size"`
+	TTL         int64  `json:"ttl"` // ns (0 = unlimited)
+	Replicas    int    `json:"replicas"`
+}
+
+// ObjectEntry is one stored object's metadata.
+type ObjectEntry struct {
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Bucket      string            `json:"bucket"`
+	Size        uint64            `json:"size"`
+	Chunks      uint32            `json:"chunks"`
+	ModTime     time.Time         `json:"modTime"`
+	Digest      string            `json:"digest,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+}
+
+// ObjectData is an object's bytes (base64) for view/download, size-capped.
+type ObjectData struct {
+	Name      string `json:"name"`
+	Size      int    `json:"size"`
+	Base64    string `json:"base64"`
+	TooLarge  bool   `json:"tooLarge,omitempty"`
+}
+
+// ObjectBucketConfig — body for POST /clusters/{id}/obj (create bucket).
+type ObjectBucketConfig struct {
+	Bucket      string `json:"bucket"`
+	Description string `json:"description,omitempty"`
+	TTL         int64  `json:"ttl"` // seconds (0 = unlimited)
+	Storage     string `json:"storage"`
+	Replicas    int    `json:"replicas"`
+}
+
+// ObjectPutRequest — body for PUT /clusters/{id}/obj/{bucket}/object?name=.
+// Exactly one of Text or Base64 is set.
+type ObjectPutRequest struct {
+	Text   string `json:"text,omitempty"`
+	Base64 string `json:"base64,omitempty"`
+}
+
 // ── Metrics ───────────────────────────────────────────────────────────────────
 
 type ThroughputPoint struct {

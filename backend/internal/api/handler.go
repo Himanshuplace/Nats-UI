@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -114,6 +115,15 @@ func Mount(r chi.Router, hub *gateway.Hub, pool *natsmgr.Pool, dm *discovery.Man
 		r.Get("/clusters/{id}/kv/{bucket}/history", h.getKVHistory)
 		r.Put("/clusters/{id}/kv/{bucket}/entry", h.putKVKey)
 		r.Delete("/clusters/{id}/kv/{bucket}/entry", h.deleteKVKey)
+
+		// Object store (object names via ?name= query param)
+		r.Get("/clusters/{id}/obj", h.listObjectBuckets)
+		r.Post("/clusters/{id}/obj", h.createObjectBucket)
+		r.Delete("/clusters/{id}/obj/{bucket}", h.deleteObjectBucket)
+		r.Get("/clusters/{id}/obj/{bucket}/objects", h.listObjects)
+		r.Get("/clusters/{id}/obj/{bucket}/object", h.getObject)
+		r.Put("/clusters/{id}/obj/{bucket}/object", h.putObject)
+		r.Delete("/clusters/{id}/obj/{bucket}/object", h.deleteObject)
 
 		// Metrics
 		r.Get("/clusters/{id}/metrics/throughput", h.metricsThroughput)
@@ -960,6 +970,126 @@ func (h *handler) deleteKVKey(w http.ResponseWriter, r *http.Request) {
 		err = h.inspector.DeleteKVKey(r.Context(), id, bucket, key)
 	}
 	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Object store ────────────────────────────────────────────────────────────────
+// Object names (which can contain dots/slashes) are passed as ?name=; bucket
+// names are [A-Za-z0-9_-] so they're path-safe.
+
+func (h *handler) listObjectBuckets(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	buckets, err := h.inspector.ListObjectBuckets(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, buckets)
+}
+
+func (h *handler) createObjectBucket(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var cfg types.ObjectBucketConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if cfg.Bucket == "" {
+		writeError(w, http.StatusBadRequest, "bucket is required")
+		return
+	}
+	info, err := h.inspector.CreateObjectBucket(r.Context(), id, cfg)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, info)
+}
+
+func (h *handler) deleteObjectBucket(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	bucket := chi.URLParam(r, "bucket")
+	if err := h.inspector.DeleteObjectBucket(r.Context(), id, bucket); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *handler) listObjects(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	bucket := chi.URLParam(r, "bucket")
+	objs, err := h.inspector.ListObjects(r.Context(), id, bucket)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if objs == nil {
+		objs = []types.ObjectEntry{}
+	}
+	writeJSON(w, http.StatusOK, objs)
+}
+
+func (h *handler) getObject(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	bucket := chi.URLParam(r, "bucket")
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	data, err := h.inspector.GetObject(r.Context(), id, bucket, name)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, data)
+}
+
+func (h *handler) putObject(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	bucket := chi.URLParam(r, "bucket")
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	var req types.ObjectPutRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	var data []byte
+	if req.Base64 != "" {
+		b, derr := base64.StdEncoding.DecodeString(req.Base64)
+		if derr != nil {
+			writeError(w, http.StatusBadRequest, "invalid base64")
+			return
+		}
+		data = b
+	} else {
+		data = []byte(req.Text)
+	}
+	entry, err := h.inspector.PutObject(r.Context(), id, bucket, name, data)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, entry)
+}
+
+func (h *handler) deleteObject(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	bucket := chi.URLParam(r, "bucket")
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if err := h.inspector.DeleteObject(r.Context(), id, bucket, name); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -49,6 +49,7 @@ const ClusterTopology   = lazy(() => import('@/components/cluster/ClusterTopolog
 const StreamExplorer    = lazy(() => import('@/components/streams/StreamExplorer').then(m => ({ default: m.StreamExplorer })))
 const ConsumerInspector = lazy(() => import('@/components/consumers/ConsumerInspector').then(m => ({ default: m.ConsumerInspector })))
 const KVManager         = lazy(() => import('@/components/kv/KVManager').then(m => ({ default: m.KVManager })))
+const ObjectStore       = lazy(() => import('@/components/objects/ObjectStore').then(m => ({ default: m.ObjectStore })))
 const MessageTail       = lazy(() => import('@/components/tail/MessageTail').then(m => ({ default: m.MessageTail })))
 const MessageBrowser    = lazy(() => import('@/components/tail/MessageBrowser').then(m => ({ default: m.MessageBrowser })))
 const MessagePublisher  = lazy(() => import('@/components/publisher/MessagePublisher').then(m => ({ default: m.MessagePublisher })))
@@ -334,6 +335,7 @@ export function AppShell() {
       case 'streams':   return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><StreamExplorer /></ViewErrorBoundary></Suspense>
       case 'consumers': return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><ConsumerInspector /></ViewErrorBoundary></Suspense>
       case 'kv':        return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><KVManager /></ViewErrorBoundary></Suspense>
+      case 'objects':   return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><ObjectStore /></ViewErrorBoundary></Suspense>
       case 'tail':      return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><MessageTail /></ViewErrorBoundary></Suspense>
       case 'browser':   return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><MessageBrowser /></ViewErrorBoundary></Suspense>
       case 'publisher': return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><MessagePublisher /></ViewErrorBoundary></Suspense>

@@ -5,11 +5,12 @@
  * to compose messages to different subjects simultaneously. Tabs persist
  * across route changes via Zustand viewStates.
  */
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Send, Plus, Trash2, CheckCircle2, XCircle,
   RefreshCw, Code2, ChevronDown, Layers, X,
+  Save, Bookmark, Square, Braces, Clock,
 } from 'lucide-react'
 import { useUIStore } from '@/store'
 import type { PublisherTab } from '@/store'
@@ -28,6 +29,55 @@ interface HistoryEntry {
   result: PublishResult | null
   error: string | null
   ts: number
+  burst?: { ok: number; fail: number; elapsedMs: number }
+}
+
+// ── Saved templates (localStorage) ──────────────────────────────────────────────
+
+interface Template { id: string; name: string; subject: string; payload: string; headers: Header[] }
+
+const TPL_KEY = 'natsui-publisher-templates'
+
+function loadTemplates(): Template[] {
+  try { return JSON.parse(localStorage.getItem(TPL_KEY) || '[]') } catch { return [] }
+}
+function persistTemplates(t: Template[]): void {
+  try { localStorage.setItem(TPL_KEY, JSON.stringify(t)) } catch { /* quota */ }
+}
+
+// ── Placeholders ────────────────────────────────────────────────────────────────
+// {{seq}} {{uuid}} {{timestamp}} {{time}} {{rand}} {{rand:a:b}} are built-in and
+// resolve per message; any other {{name}} is a custom variable the user fills in.
+
+const BUILTIN_VARS = new Set(['seq', 'i', 'index', 'uuid', 'timestamp', 'ts', 'time', 'now', 'rand', 'random'])
+
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
+
+function isBuiltinVar(t: string): boolean {
+  return BUILTIN_VARS.has(t.toLowerCase()) || /^rand:-?\d+:-?\d+$/i.test(t)
+}
+
+function substitute(text: string, vars: Record<string, string>, seq: number): string {
+  return text.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_m, raw) => {
+    const t = String(raw).trim()
+    const low = t.toLowerCase()
+    if (low === 'seq' || low === 'i' || low === 'index') return String(seq)
+    if (low === 'uuid') return (globalThis.crypto?.randomUUID?.() ?? String(Math.random()).slice(2))
+    if (low === 'timestamp' || low === 'ts') return new Date().toISOString()
+    if (low === 'time' || low === 'now') return String(Date.now())
+    if (low === 'rand' || low === 'random') return String(Math.floor(Math.random() * 1e6))
+    const rm = low.match(/^rand:(-?\d+):(-?\d+)$/)
+    if (rm) { const a = +rm[1], b = +rm[2]; return String(a + Math.floor(Math.random() * (b - a + 1))) }
+    return Object.prototype.hasOwnProperty.call(vars, t) ? vars[t] : `{{${t}}}`
+  })
+}
+
+function detectPlaceholders(text: string): string[] {
+  const out = new Set<string>()
+  const re = /\{\{\s*([^}]+?)\s*\}\}/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text))) out.add(m[1].trim())
+  return [...out]
 }
 
 let historyId = 0
@@ -68,6 +118,18 @@ export function MessagePublisher() {
   const [sendOk, setSendOk]     = useState(false)   // brief "Sent!" flash
   const sendTimerRef            = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [history, setHistory]   = useState<HistoryEntry[]>([])
+
+  // ── Burst + placeholders + templates ──────────────────────────────────────
+  const [count, setCount]           = useState(1)
+  const [durationSec, setDuration]  = useState(0)        // spread N over this many seconds (0 = fast)
+  const [vars, setVars]             = useState<Record<string, string>>({})
+  const [bursting, setBursting]     = useState(false)
+  const [burstSent, setBurstSent]   = useState(0)
+  const burstStop                   = useRef(false)
+  const [templates, setTemplates]   = useState<Template[]>(loadTemplates)
+  const [showSaved, setShowSaved]   = useState(false)
+  const [showSaveBox, setShowSaveBox] = useState(false)
+  const [saveName, setSaveName]     = useState('')
 
   // ── Subject autocomplete ──────────────────────────────────────────────────
   const [showSugg, setShowSugg]     = useState(false)
@@ -145,46 +207,103 @@ export function MessagePublisher() {
     subjectRef.current?.focus()
   }
 
-  // ── Send ──────────────────────────────────────────────────────────────────
+  // ── Placeholders detected in subject + payload ────────────────────────────
+  const placeholders = useMemo(() => {
+    const all = [...new Set([
+      ...detectPlaceholders(activeTab?.subject ?? ''),
+      ...detectPlaceholders(activeTab?.payload ?? ''),
+    ])]
+    return { builtin: all.filter(isBuiltinVar), custom: all.filter(t => !isBuiltinVar(t)) }
+  }, [activeTab?.subject, activeTab?.payload])
+
+  const setVar = (k: string, v: string) => setVars(prev => ({ ...prev, [k]: v }))
+
+  // ── Templates ─────────────────────────────────────────────────────────────
+  const saveTemplate = () => {
+    if (!activeTab) return
+    const name = (saveName.trim() || activeTab.subject.trim() || 'Untitled').slice(0, 40)
+    const tpl: Template = { id: `tpl-${Date.now()}`, name, subject: activeTab.subject, payload: activeTab.payload, headers: activeTab.headers }
+    const next = [tpl, ...templates.filter(t => t.name !== name)].slice(0, 50)
+    setTemplates(next); persistTemplates(next)
+    setShowSaveBox(false); setSaveName('')
+  }
+  const loadTemplate = (t: Template) => {
+    updateActiveTab({ subject: t.subject, payload: t.payload, headers: t.headers })
+    setShowSaved(false)
+  }
+  const deleteTemplate = (id: string) => {
+    const next = templates.filter(t => t.id !== id)
+    setTemplates(next); persistTemplates(next)
+  }
+
+  const stopBurst = () => { burstStop.current = true }
+
+  // ── Send — a single message, or a burst of N over a duration ───────────────
   const handleSend = useCallback(async () => {
-    if (!clusterId || !activeTab?.subject.trim() || loading) return
-
-    // Cancel any pending "OK" flash timer
+    if (!clusterId || !activeTab?.subject.trim() || loading || bursting) return
     if (sendTimerRef.current) clearTimeout(sendTimerRef.current)
-    setSendOk(false)
-    setLoading(true)
 
-    const entry: HistoryEntry = {
-      id:          ++historyId,
-      tabId:       activeTab.id,
-      subject:     activeTab.subject.trim(),
+    const total = Math.max(1, Math.min(Math.floor(count) || 1, 10000))
+    const baseSubject = activeTab.subject.trim()
+    const hdrs = (activeTab.headers ?? []).reduce<Record<string, string>>((acc, h) => {
+      if (h.key.trim()) acc[h.key.trim()] = h.value
+      return acc
+    }, {})
+    const headersArg = Object.keys(hdrs).length ? hdrs : undefined
+
+    // Single send
+    if (total === 1) {
+      setSendOk(false); setLoading(true)
+      const entry: HistoryEntry = {
+        id: ++historyId, tabId: activeTab.id, subject: baseSubject,
+        payloadSize: activeTab.payload.length, result: null, error: null, ts: Date.now(),
+      }
+      try {
+        entry.result = await api.publish(clusterId, {
+          subject: substitute(baseSubject, vars, 1),
+          payload: substitute(activeTab.payload, vars, 1),
+          headers: headersArg,
+        })
+        setSendOk(true)
+        sendTimerRef.current = setTimeout(() => setSendOk(false), 1500)
+      } catch (err: any) {
+        entry.error = err.message ?? 'publish failed'
+      } finally {
+        setLoading(false)
+        setHistory(prev => [entry, ...prev].slice(0, 100))
+      }
+      return
+    }
+
+    // Burst: publish `total` messages, spread across durationSec
+    burstStop.current = false
+    setBursting(true); setBurstSent(0)
+    const delay = durationSec > 0 ? (durationSec * 1000) / total : 0
+    const start = Date.now()
+    let ok = 0, fail = 0, lastErr = ''
+    for (let i = 1; i <= total; i++) {
+      if (burstStop.current) break
+      try {
+        await api.publish(clusterId, {
+          subject: substitute(baseSubject, vars, i),
+          payload: substitute(activeTab.payload, vars, i),
+          headers: headersArg,
+        })
+        ok++
+      } catch (err: any) { fail++; lastErr = err?.message ?? 'publish failed' }
+      setBurstSent(i)
+      if (delay > 0 && i < total) await sleep(delay)
+    }
+    setBursting(false)
+    setHistory(prev => [{
+      id: ++historyId, tabId: activeTab.id, subject: baseSubject,
       payloadSize: activeTab.payload.length,
-      result:      null,
-      error:       null,
-      ts:          Date.now(),
-    }
-
-    try {
-      const hdrs = (activeTab.headers ?? []).reduce<Record<string, string>>((acc, h) => {
-        if (h.key.trim()) acc[h.key.trim()] = h.value
-        return acc
-      }, {})
-      entry.result = await api.publish(clusterId, {
-        subject: activeTab.subject.trim(),
-        payload: activeTab.payload,
-        headers: Object.keys(hdrs).length ? hdrs : undefined,
-      })
-      // Flash success for 1.5s then return to normal
-      setSendOk(true)
-      sendTimerRef.current = setTimeout(() => setSendOk(false), 1500)
-    } catch (err: any) {
-      entry.error = err.message ?? 'publish failed'
-    } finally {
-      // Always unblock — this MUST run even if the catch re-throws
-      setLoading(false)
-      setHistory(prev => [entry, ...prev].slice(0, 100))
-    }
-  }, [clusterId, activeTab, loading])
+      result: fail === 0 ? { subject: baseSubject, accepted: true } : null,
+      error: fail > 0 ? `${fail} failed${lastErr ? ` — ${lastErr}` : ''}` : null,
+      ts: Date.now(),
+      burst: { ok, fail, elapsedMs: Date.now() - start },
+    }, ...prev].slice(0, 100))
+  }, [clusterId, activeTab, loading, bursting, count, durationSec, vars])
 
   // Cleanup flash timer on unmount
   useEffect(() => () => { if (sendTimerRef.current) clearTimeout(sendTimerRef.current) }, [])
@@ -238,6 +357,50 @@ export function MessagePublisher() {
 
         {/* ── Compose form ──────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
+
+          {/* Saved templates */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <button
+                onClick={() => setShowSaved(v => !v)}
+                onBlur={() => setTimeout(() => setShowSaved(false), 150)}
+                className="w-full flex items-center gap-2 px-3 py-1.5 rounded-md border border-bg-border bg-bg-surface text-2xs font-sans text-text-secondary hover:border-bg-border-strong transition-colors"
+              >
+                <Bookmark className="w-3 h-3 text-accent-primary flex-shrink-0" />
+                <span className="flex-1 text-left">{templates.length ? `Saved templates (${templates.length})` : 'No saved templates'}</span>
+                <ChevronDown className="w-3 h-3 flex-shrink-0" />
+              </button>
+              {showSaved && templates.length > 0 && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-bg-elevated border border-bg-border rounded-lg shadow-popover max-h-60 overflow-y-auto">
+                  {templates.map(t => (
+                    <div key={t.id} className="flex items-center gap-2 px-3 py-2 hover:bg-bg-hover group">
+                      <button onMouseDown={() => loadTemplate(t)} className="flex-1 min-w-0 text-left">
+                        <div className="text-xs font-sans text-text-primary truncate">{t.name}</div>
+                        <div className="text-2xs font-mono text-text-muted truncate">{t.subject || '—'}</div>
+                      </button>
+                      <button onMouseDown={(e) => { e.preventDefault(); deleteTemplate(t.id) }} title="Delete"
+                        className="text-text-muted hover:text-accent-red opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {showSaveBox ? (
+              <div className="flex items-center gap-1">
+                <input autoFocus value={saveName} onChange={e => setSaveName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveTemplate(); if (e.key === 'Escape') setShowSaveBox(false) }}
+                  placeholder="name" className="w-24 px-2 py-1.5 text-2xs font-sans bg-bg-surface border border-bg-border rounded-md outline-none focus:border-accent-primary/50 text-text-primary" />
+                <button onClick={saveTemplate} className="px-2 py-1.5 rounded-md bg-accent-primary text-white text-2xs font-sans hover:bg-accent-primary-dim transition-colors">Save</button>
+              </div>
+            ) : (
+              <button onClick={() => { setShowSaveBox(true); setSaveName('') }}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-bg-border text-2xs font-sans text-text-secondary hover:border-accent-primary/40 hover:text-accent-primary transition-colors flex-shrink-0">
+                <Save className="w-3 h-3" /> Save
+              </button>
+            )}
+          </div>
 
           {/* Subject */}
           <div className="space-y-1.5">
@@ -369,29 +532,106 @@ export function MessagePublisher() {
             )}
           </div>
 
-          {/* Send button */}
-          <button
-            onClick={handleSend}
-            disabled={!subject.trim() || loading}
-            className={cn(
-              'w-full h-9 flex items-center justify-center gap-2 rounded-md text-xs font-sans font-medium transition-all duration-150',
-              sendOk
-                ? 'bg-accent-green/15 border border-accent-green/30 text-accent-green'
-                : loading
-                ? 'bg-accent-primary/10 border border-accent-primary/20 text-accent-primary cursor-not-allowed'
-                : !subject.trim()
-                ? 'bg-bg-surface border border-bg-border text-text-muted cursor-not-allowed'
-                : 'bg-accent-primary text-white hover:bg-accent-primary-dim border border-transparent cursor-pointer',
-            )}
-          >
-            {loading ? (
-              <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Sending…</>
-            ) : sendOk ? (
-              <><CheckCircle2 className="w-3.5 h-3.5" /> Sent!</>
-            ) : (
-              <><Send className="w-3.5 h-3.5" /> Publish to NATS</>
-            )}
-          </button>
+          {/* Variables (detected {{placeholders}}) */}
+          {(placeholders.custom.length > 0 || placeholders.builtin.length > 0) && (
+            <div className="space-y-2">
+              <label className="text-2xs font-sans font-medium text-text-muted uppercase tracking-wide flex items-center gap-1">
+                <Braces className="w-3 h-3" /> Variables
+              </label>
+              {placeholders.builtin.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {placeholders.builtin.map(t => (
+                    <span key={t} title="auto-filled per message"
+                      className="px-1.5 py-0.5 rounded bg-accent-primary/10 border border-accent-primary/20 text-2xs font-mono text-accent-primary">
+                      {`{{${t}}}`} <span className="text-text-muted">auto</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {placeholders.custom.map(t => (
+                <div key={t} className="flex items-center gap-2">
+                  <span className="w-28 flex-shrink-0 text-2xs font-mono text-text-secondary truncate">{`{{${t}}}`}</span>
+                  <input value={vars[t] ?? ''} onChange={e => setVar(t, e.target.value)} placeholder="value" className="input-base flex-1" />
+                </div>
+              ))}
+              <p className="text-2xs font-mono text-text-muted/70">
+                built-ins: {'{{seq}} {{uuid}} {{timestamp}} {{rand}} {{rand:1:100}}'}
+              </p>
+            </div>
+          )}
+
+          {/* Count & rate */}
+          <div className="space-y-2">
+            <label className="text-2xs font-sans font-medium text-text-muted uppercase tracking-wide flex items-center gap-1">
+              <Clock className="w-3 h-3" /> Count &amp; rate
+            </label>
+            <div className="flex items-center gap-2 text-xs font-mono text-text-secondary">
+              <input type="number" min={1} max={10000} value={count}
+                onChange={e => setCount(Math.max(1, Math.min(10000, parseInt(e.target.value) || 1)))}
+                className="w-20 px-2 py-1.5 bg-bg-surface border border-bg-border rounded-md text-text-primary outline-none focus:border-accent-primary/50 tabular-nums" />
+              <span className="text-text-muted">msg{count === 1 ? '' : 's'}</span>
+              <span className="text-text-muted">over</span>
+              <input type="number" min={0} max={3600} value={durationSec}
+                onChange={e => setDuration(Math.max(0, Math.min(3600, parseInt(e.target.value) || 0)))}
+                className="w-16 px-2 py-1.5 bg-bg-surface border border-bg-border rounded-md text-text-primary outline-none focus:border-accent-primary/50 tabular-nums" />
+              <span className="text-text-muted">sec</span>
+              {count > 1 && (
+                <span className="ml-auto text-2xs text-text-muted">
+                  {durationSec > 0 ? `~${Math.max(1, Math.round(count / durationSec))}/s` : 'as fast as possible'}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {[1, 10, 100, 1000].map(n => (
+                <button key={n} onClick={() => setCount(n)}
+                  className={cn('px-2 py-0.5 rounded text-2xs font-mono border transition-colors',
+                    count === n ? 'border-accent-primary/40 text-accent-primary bg-accent-primary/5' : 'border-bg-border text-text-muted hover:text-text-secondary')}>
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Send / Burst */}
+          {bursting ? (
+            <div className="space-y-2">
+              <div className="h-2 rounded-full bg-bg-surface overflow-hidden border border-bg-border">
+                <div className="h-full bg-accent-primary transition-all" style={{ width: `${(burstSent / Math.max(1, count)) * 100}%` }} />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="flex-1 text-2xs font-mono text-text-secondary tabular-nums">Publishing {burstSent} / {count}…</span>
+                <button onClick={stopBurst}
+                  className="flex items-center gap-1 px-3 h-8 rounded-md border border-accent-red/30 text-accent-red text-xs font-sans hover:bg-accent-red/10 transition-colors">
+                  <Square className="w-3 h-3" /> Stop
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!subject.trim() || loading}
+              className={cn(
+                'w-full h-9 flex items-center justify-center gap-2 rounded-md text-xs font-sans font-medium transition-all duration-150',
+                sendOk
+                  ? 'bg-accent-green/15 border border-accent-green/30 text-accent-green'
+                  : loading
+                  ? 'bg-accent-primary/10 border border-accent-primary/20 text-accent-primary cursor-not-allowed'
+                  : !subject.trim()
+                  ? 'bg-bg-surface border border-bg-border text-text-muted cursor-not-allowed'
+                  : 'bg-accent-primary text-white hover:bg-accent-primary-dim border border-transparent cursor-pointer',
+              )}
+            >
+              {loading ? (
+                <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Sending…</>
+              ) : sendOk ? (
+                <><CheckCircle2 className="w-3.5 h-3.5" /> Sent!</>
+              ) : count > 1 ? (
+                <><Send className="w-3.5 h-3.5" /> Publish {count}{durationSec > 0 ? ` over ${durationSec}s` : ''}</>
+              ) : (
+                <><Send className="w-3.5 h-3.5" /> Publish to NATS</>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
@@ -549,7 +789,14 @@ function HistoryRow({ entry, tabLabel, onResend }: {
             </span>
           </div>
         </div>
-        {ok && entry.result && (
+        {entry.burst && (
+          <p className="text-2xs font-mono text-text-secondary">
+            burst · <span className="text-accent-green">{entry.burst.ok} sent</span>
+            {entry.burst.fail > 0 && <> · <span className="text-accent-red">{entry.burst.fail} failed</span></>}
+            {' · '}<span className="text-text-muted tabular-nums">{entry.burst.elapsedMs} ms</span>
+          </p>
+        )}
+        {ok && entry.result && !entry.burst && (
           <p className="text-2xs font-mono text-accent-green">
             ✓ accepted
             {entry.result.stream && (

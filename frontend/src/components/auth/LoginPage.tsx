@@ -40,8 +40,8 @@ export function LoginPage() {
       <div className="relative z-10 w-full max-w-sm px-4">
         {/* Logo */}
         <div className="mb-8 text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-accent-cyan/10 border border-accent-cyan/20 mb-4">
-            <Wifi className="w-6 h-6 text-accent-cyan" />
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-accent-primary/10 border border-accent-primary/20 mb-4">
+            <Wifi className="w-6 h-6 text-accent-primary" />
           </div>
           <h1 className="text-2xl font-sans font-semibold text-text-primary tracking-tight">NatsUI</h1>
           <p className="text-sm font-mono text-text-muted mt-1">Realtime NATS Control Plane</p>
@@ -52,7 +52,7 @@ export function LoginPage() {
           <div>
             <h2 className="text-sm font-sans font-semibold text-text-primary">Sign in</h2>
             <p className="text-xs font-mono text-text-muted mt-0.5">
-              Use the credentials from your <code className="text-accent-cyan">natsui.json</code> config
+              Use the credentials from your <code className="text-accent-primary">natsui.json</code> config
             </p>
           </div>
 
@@ -106,8 +106,8 @@ export function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2 px-4 bg-accent-cyan text-bg-base text-sm font-mono font-semibold rounded-lg
-                         hover:bg-accent-cyan/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="w-full py-2 px-4 bg-accent-primary text-bg-base text-sm font-mono font-semibold rounded-lg
+                         hover:bg-accent-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {loading ? 'Signing in…' : 'Sign in'}
             </button>

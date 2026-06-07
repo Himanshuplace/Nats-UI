@@ -1,4 +1,5 @@
 import { type ReactNode, type HTMLAttributes, forwardRef } from 'react'
+import { Minus, Plus } from 'lucide-react'
 import { clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 
@@ -9,7 +10,7 @@ export function cn(...inputs: Parameters<typeof clsx>): string {
 // ── Badge ─────────────────────────────────────────────────────────────────────
 
 interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
-  variant?: 'default' | 'green' | 'yellow' | 'red' | 'purple' | 'cyan' | 'ghost'
+  variant?: 'default' | 'green' | 'yellow' | 'red' | 'purple' | 'cyan' | 'violet' | 'ghost'
   size?: 'xs' | 'sm'
 }
 
@@ -20,13 +21,14 @@ export function Badge({ variant = 'default', size = 'sm', className, children, .
         'inline-flex items-center font-mono font-medium rounded border',
         size === 'xs' ? 'px-1 py-0 text-2xs' : 'px-1.5 py-0.5 text-xs',
         {
-          'bg-bg-surface/80 border-bg-border text-text-secondary':            variant === 'default',
-          'bg-accent-green/10 border-accent-green/20 text-accent-green':      variant === 'green',
-          'bg-accent-yellow/10 border-accent-yellow/20 text-accent-yellow':   variant === 'yellow',
-          'bg-accent-red/10 border-accent-red/20 text-accent-red':            variant === 'red',
-          'bg-accent-purple/10 border-accent-purple/20 text-accent-purple':   variant === 'purple',
-          'bg-accent-cyan/10 border-accent-cyan/20 text-accent-cyan':         variant === 'cyan',
-          'bg-transparent border-transparent text-text-muted':                variant === 'ghost',
+          'bg-bg-surface/80 border-bg-border text-text-secondary':                    variant === 'default',
+          'bg-accent-green/10 border-accent-green/20 text-accent-green':              variant === 'green',
+          'bg-accent-yellow/10 border-accent-yellow/20 text-accent-yellow':           variant === 'yellow',
+          'bg-accent-red/10 border-accent-red/20 text-accent-red':                    variant === 'red',
+          'bg-accent-purple/10 border-accent-purple/20 text-accent-purple':           variant === 'purple',
+          'bg-accent-cyan/10 border-accent-cyan/20 text-accent-cyan':                 variant === 'cyan',
+          'bg-accent-primary/10 border-accent-primary/25 text-accent-primary':        variant === 'violet',
+          'bg-transparent border-transparent text-text-muted':                        variant === 'ghost',
         },
         className,
       )}
@@ -75,13 +77,15 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         type={type}
         disabled={disabled}
         className={cn(
-          'inline-flex items-center gap-1.5 font-mono font-medium rounded-lg border transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-accent-cyan/50',
-          disabled && 'opacity-40 cursor-not-allowed pointer-events-none',
+          'inline-flex items-center justify-center gap-1.5 font-mono font-medium rounded-lg border select-none',
+          'transition-all duration-150 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-accent-primary/40',
+          disabled && 'opacity-40 cursor-not-allowed pointer-events-none active:scale-100',
           size === 'xs' ? 'px-2 py-0.5 text-2xs' : size === 'md' ? 'px-4 py-2 text-sm' : 'px-2.5 py-1 text-xs',
           {
-            'bg-accent-cyan text-bg-base border-accent-cyan hover:bg-accent-cyan/90 shadow-glow-cyan':
+            // Primary — violet brand accent (single interactive accent across the app)
+            'bg-accent-primary text-text-inverse border-accent-primary hover:bg-accent-primary-dim hover:border-accent-primary-dim accent-glow':
               variant === 'primary',
-            'glass-sm border-bg-border text-text-secondary hover:bg-bg-hover/60 hover:text-text-primary':
+            'glass-sm border-bg-border text-text-secondary hover:bg-bg-hover/60 hover:text-text-primary hover:border-bg-border-strong':
               variant === 'secondary',
             'bg-transparent border-transparent text-text-secondary hover:bg-bg-hover/60 hover:text-text-primary':
               variant === 'ghost',
@@ -100,6 +104,60 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   },
 )
 Button.displayName = 'Button'
+
+// ── Stepper (numeric +/- control) ──────────────────────────────────────────────
+// Unified increment/decrement control. Replaces the hand-rolled +/- buttons
+// scattered across publisher/consumer/stream views.
+
+interface StepperProps {
+  value: number
+  onChange: (next: number) => void
+  min?: number
+  max?: number
+  step?: number
+  size?: 'sm' | 'md'
+  suffix?: string
+  className?: string
+  label?: string
+}
+
+export function Stepper({
+  value, onChange, min = -Infinity, max = Infinity, step = 1,
+  size = 'sm', suffix, className, label,
+}: StepperProps) {
+  const clamp = (n: number) => Math.min(max, Math.max(min, n))
+  const box  = size === 'md' ? 'h-8 w-8' : 'h-6 w-7'
+  const text = size === 'md' ? 'text-sm px-2.5 min-w-[3.25rem]' : 'text-xs px-2 min-w-[2.75rem]'
+  const ico  = size === 'md' ? 15 : 13
+
+  const btn =
+    'flex items-center justify-center text-text-muted transition-colors ' +
+    'hover:text-accent-primary hover:bg-bg-hover/60 active:bg-bg-active/60 ' +
+    'disabled:opacity-30 disabled:pointer-events-none'
+
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className={cn(
+        'inline-flex items-stretch rounded-lg border border-bg-border bg-bg-surface/50 overflow-hidden',
+        className,
+      )}
+    >
+      <button type="button" aria-label="Decrease" onClick={() => onChange(clamp(value - step))}
+        disabled={value <= min} className={cn(btn, box)}>
+        <Minus size={ico} strokeWidth={2.5} />
+      </button>
+      <div className={cn('flex items-center justify-center font-mono tabular-nums text-text-primary border-x border-bg-border', text)}>
+        {value}{suffix && <span className="text-text-muted ml-0.5">{suffix}</span>}
+      </div>
+      <button type="button" aria-label="Increase" onClick={() => onChange(clamp(value + step))}
+        disabled={value >= max} className={cn(btn, box)}>
+        <Plus size={ico} strokeWidth={2.5} />
+      </button>
+    </div>
+  )
+}
 
 // ── Kbd ───────────────────────────────────────────────────────────────────────
 
@@ -198,7 +256,7 @@ export function StatCard({ label, value, sub, color = 'default' }: {
   label: string
   value: string | number
   sub?: string
-  color?: 'default' | 'green' | 'yellow' | 'red' | 'cyan' | 'purple'
+  color?: 'default' | 'green' | 'yellow' | 'red' | 'cyan' | 'purple' | 'violet'
 }) {
   const valueColor = {
     default: 'text-text-primary',
@@ -207,6 +265,7 @@ export function StatCard({ label, value, sub, color = 'default' }: {
     red:     'text-accent-red',
     cyan:    'text-accent-cyan',
     purple:  'text-accent-purple',
+    violet:  'text-accent-primary',
   }[color]
 
   return (
@@ -237,6 +296,6 @@ export function MonoText({ children, className, dim }: {
 export function Spinner({ size = 'sm' }: { size?: 'xs' | 'sm' | 'md' }) {
   const sz = size === 'xs' ? 'w-3 h-3' : size === 'md' ? 'w-6 h-6' : 'w-4 h-4'
   return (
-    <div className={cn('animate-spin rounded-full border-2 border-bg-border border-t-accent-cyan', sz)} />
+    <div className={cn('animate-spin rounded-full border-2 border-bg-border border-t-accent-primary', sz)} />
   )
 }

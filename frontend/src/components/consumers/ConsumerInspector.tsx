@@ -8,7 +8,7 @@ import { useUIStore } from '@/store'
 import { api } from '@/lib/api'
 import {
   Badge, Button, HealthDot, SectionHeader,
-  StatCard, EmptyState, Spinner, cn,
+  StatCard, EmptyState, Spinner, Stepper, cn,
 } from '@/components/ui'
 import { formatNumber, formatTimeAgo, formatDuration } from '@/lib/format'
 import type { ConsumerInfo, ConsumerHealth, ConsumerConfig } from '@/types'
@@ -147,12 +147,12 @@ function ConsumerListItem({ consumer, selected, onSelect, onDelete }: {
   return (
     <div className={cn(
       'flex items-center border-b border-bg-border/50 transition-colors group',
-      selected ? 'bg-accent-cyan/5 border-l-2 border-l-accent-cyan' : 'hover:bg-bg-hover',
+      selected ? 'bg-accent-primary/5 border-l-2 border-l-accent-primary' : 'hover:bg-bg-hover',
     )}>
       <button onClick={onSelect} className="flex-1 flex flex-col gap-0.5 px-3 py-2.5 text-left min-w-0">
         <div className="flex items-center gap-2">
           <HealthDot health={consumer.health} size="xs" />
-          <span className={cn('flex-1 text-xs font-mono font-medium truncate', selected ? 'text-accent-cyan' : 'text-text-primary')}>
+          <span className={cn('flex-1 text-xs font-mono font-medium truncate', selected ? 'text-accent-primary' : 'text-text-primary')}>
             {consumer.name}
           </span>
           <LagBadge lag={consumer.lag} />
@@ -289,7 +289,7 @@ function ConsumerDetail({ consumer }: { consumer: ConsumerInfo }) {
 function CreateConsumerForm({ clusterId, stream, onClose, onCreated }: {
   clusterId: string; stream: string; onClose: () => void; onCreated: (name: string) => void
 }) {
-  const [form, setForm]     = useState<Record<string, any>>({ deliverPolicy: 'all', ackPolicy: 'explicit', replayPolicy: 'instant', maxDeliver: -1 })
+  const [form, setForm]     = useState<Record<string, any>>({ deliverPolicy: 'all', ackPolicy: 'explicit', replayPolicy: 'instant', maxDeliver: -1, ackWait: 30, maxAckPending: 0 })
   const [error, setError]   = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -347,7 +347,8 @@ function CreateConsumerForm({ clusterId, stream, onClose, onCreated }: {
 
         {form.deliverPolicy === 'by_start_sequence' && (
           <CField label="Start Sequence">
-            <input type="number" min={1} value={form.optStartSeq ?? ''} onChange={e => set('optStartSeq', e.target.value)} placeholder="1" className={iCls} />
+            <Stepper size="md" min={1} step={1} value={Number(form.optStartSeq) || 1}
+              onChange={(n) => set('optStartSeq', n)} label="Start Sequence" />
           </CField>
         )}
 
@@ -367,15 +368,18 @@ function CreateConsumerForm({ clusterId, stream, onClose, onCreated }: {
         </CField>
 
         <CField label="ACK Wait (seconds)" hint="How long server waits before redelivering">
-          <input type="number" min={1} value={form.ackWait ?? ''} onChange={e => set('ackWait', e.target.value)} placeholder="30" className={iCls} />
+          <Stepper size="md" min={1} step={5} value={Number(form.ackWait) || 30}
+            onChange={(n) => set('ackWait', n)} suffix="s" label="ACK Wait seconds" />
         </CField>
 
         <CField label="Max Deliver" hint="-1 = unlimited redeliveries">
-          <input type="number" value={form.maxDeliver ?? -1} onChange={e => set('maxDeliver', e.target.value)} className={iCls} />
+          <Stepper size="md" min={-1} step={1} value={Number(form.maxDeliver ?? -1)}
+            onChange={(n) => set('maxDeliver', n)} label="Max Deliver" />
         </CField>
 
         <CField label="Max ACK Pending" hint="0 = server default (1000)">
-          <input type="number" min={0} value={form.maxAckPending ?? ''} onChange={e => set('maxAckPending', e.target.value)} placeholder="1000" className={iCls} />
+          <Stepper size="md" min={0} step={100} value={Number(form.maxAckPending) || 0}
+            onChange={(n) => set('maxAckPending', n)} label="Max ACK Pending" />
         </CField>
 
         <CField label="Filter Subject" hint="Leave empty to consume all stream subjects">

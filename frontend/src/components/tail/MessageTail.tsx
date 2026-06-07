@@ -177,7 +177,7 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
             className={cn(
               'flex items-center gap-1.5 px-4 py-2.5 text-xs font-mono font-medium border-b-2 transition-colors',
               mode === m
-                ? 'border-accent-cyan text-accent-cyan bg-accent-cyan/5'
+                ? 'border-accent-primary text-accent-primary bg-accent-primary/5'
                 : 'border-transparent text-text-muted hover:text-text-secondary hover:bg-bg-hover',
             )}
           >
@@ -271,7 +271,7 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
           className={cn(
             'flex items-center gap-1 text-2xs font-mono px-1.5 py-0.5 rounded border transition-colors',
             autoScroll
-              ? 'border-accent-cyan/40 text-accent-cyan bg-accent-cyan/5'
+              ? 'border-accent-primary/40 text-accent-primary bg-accent-primary/5'
               : 'border-bg-border text-text-muted hover:border-bg-border/80',
           )}
         >
@@ -307,7 +307,7 @@ export function MessageTail({ clusterId: clusterIdProp = '', stream = '' }: Mess
               {[0, 0.15, 0.3].map(d => (
                 <span
                   key={d}
-                  className="w-2 h-2 rounded-full bg-accent-cyan animate-pulse"
+                  className="w-2 h-2 rounded-full bg-accent-primary animate-pulse"
                   style={{ animationDelay: `${d}s` }}
                 />
               ))}

@@ -113,13 +113,13 @@ export function slideIndicator(
 // ── Flash ─────────────────────────────────────────────────────────────────────
 
 /**
- * Flash an element with the lime accent — used for new messages, send confirmation.
+ * Flash an element with the violet accent — used for new messages, send confirmation.
  */
 export function flashLime(el: HTMLElement | null): void {
   if (!el) return
   gsap.timeline()
-    .to(el,  { backgroundColor: 'rgba(168, 255, 60, 0.15)', duration: 0.08, ease: 'none' })
-    .to(el,  { backgroundColor: 'transparent',              duration: 0.4,  ease: ease.out })
+    .to(el,  { backgroundColor: 'rgba(167, 139, 250, 0.15)', duration: 0.08, ease: 'none' })
+    .to(el,  { backgroundColor: 'transparent',               duration: 0.4,  ease: ease.out })
 }
 
 // Re-export GSAP itself for cases where a component needs direct access

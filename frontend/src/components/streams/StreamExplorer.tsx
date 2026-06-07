@@ -8,7 +8,7 @@ import { useUIStore } from '@/store'
 import { api } from '@/lib/api'
 import {
   Badge, Button, HealthDot, SectionHeader, StatCard,
-  EmptyState, Spinner, cn,
+  EmptyState, Spinner, Stepper, cn,
 } from '@/components/ui'
 import {
   formatBytes, formatNumber, formatTimeAgo, formatDuration, healthColor,
@@ -162,7 +162,7 @@ function StreamListItem({
     <div
       className={cn(
         'group relative w-full flex flex-col gap-0.5 px-3 py-2.5 border-b border-bg-border/50 text-left transition-colors cursor-pointer',
-        selected ? 'bg-accent-cyan/5 border-l-2 border-l-accent-cyan' : 'hover:bg-bg-hover',
+        selected ? 'bg-accent-primary/5 border-l-2 border-l-accent-primary' : 'hover:bg-bg-hover',
       )}
       onClick={onSelect}
     >
@@ -170,7 +170,7 @@ function StreamListItem({
         <HealthDot health={health} size="xs" />
         <span className={cn(
           'flex-1 text-xs font-mono font-medium truncate',
-          selected ? 'text-accent-cyan' : 'text-text-primary',
+          selected ? 'text-accent-primary' : 'text-text-primary',
         )}>
           {stream.config.name}
         </span>
@@ -472,13 +472,13 @@ function CreateStreamForm({
           </div>
           <div>
             <FormLabel>Replicas</FormLabel>
-            <input
-              type="number"
+            <Stepper
+              size="md"
               min={1}
               max={5}
-              value={form.replicas}
-              onChange={set('replicas')}
-              className={inputClass}
+              value={parseInt(form.replicas, 10) || 1}
+              onChange={(n) => setForm(f => ({ ...f, replicas: String(n) }))}
+              label="Replicas"
             />
           </div>
         </div>
@@ -607,7 +607,14 @@ function EditStreamForm({
         <div className="grid grid-cols-3 gap-4">
           <div>
             <FormLabel>Replicas</FormLabel>
-            <input type="number" min={1} max={5} value={form.replicas} onChange={set('replicas')} className={inputClass} />
+            <Stepper
+              size="md"
+              min={1}
+              max={5}
+              value={parseInt(form.replicas, 10) || 1}
+              onChange={(n) => setForm(f => ({ ...f, replicas: String(n) }))}
+              label="Replicas"
+            />
           </div>
           <div>
             <FormLabel>Max Age (seconds)</FormLabel>

@@ -156,7 +156,9 @@ export const useUIStore = create<UIState>()(
       const next = s.theme === 'dark' ? 'light' : 'dark'
       localStorage.setItem('natsui-theme', next)
       document.documentElement.classList.toggle('dark', next === 'dark')
-      document.documentElement.style.backgroundColor = next === 'dark' ? '#09090b' : '#fafafa'
+      // Match the Midnight-Violet base tokens (--c-bg-base) so the switch
+      // doesn't flash an off-theme zinc/white behind the app.
+      document.documentElement.style.backgroundColor = next === 'dark' ? '#0a0814' : '#f6f4ff'
       return { theme: next }
     }),
 

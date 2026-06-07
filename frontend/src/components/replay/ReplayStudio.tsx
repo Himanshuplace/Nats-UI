@@ -101,7 +101,7 @@ export function ReplayStudio() {
                   className={cn(
                     'flex-1 px-2 py-1 text-2xs font-mono rounded border transition-colors',
                     mode === m
-                      ? 'bg-accent-cyan/10 border-accent-cyan/30 text-accent-cyan'
+                      ? 'bg-accent-primary/10 border-accent-primary/30 text-accent-primary'
                       : 'bg-bg-surface border-bg-border text-text-muted hover:text-text-secondary',
                   )}
                 >
@@ -150,7 +150,7 @@ export function ReplayStudio() {
                 step="10"
                 value={throttleMs}
                 onChange={e => setThrottleMs(e.target.value)}
-                className="flex-1 accent-accent-cyan"
+                className="flex-1 accent-accent-primary"
               />
               <span className="text-xs font-mono text-text-muted w-16 text-right">
                 {parseInt(throttleMs) === 0 ? 'Instant' : `${throttleMs}ms`}
@@ -255,11 +255,11 @@ function ReplayCard({
   return (
     <div className={cn(
       'border rounded-lg p-4 space-y-3',
-      done ? 'glass border-bg-border/50' : 'glass border-accent-cyan/20',
+      done ? 'glass border-bg-border/50' : 'glass border-accent-primary/20',
     )}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {!done && <span className="w-2 h-2 rounded-full bg-accent-cyan animate-pulse" />}
+          {!done && <span className="w-2 h-2 rounded-full bg-accent-primary animate-pulse" />}
           {done && replay.error && <span className="w-2 h-2 rounded-full bg-accent-red" />}
           {done && !replay.error && <span className="w-2 h-2 rounded-full bg-accent-green" />}
           <span className="text-xs font-mono text-text-primary">{replay.id}</span>
@@ -272,7 +272,7 @@ function ReplayCard({
             </Button>
           )}
           <Badge
-            variant={done && !replay.error ? 'green' : done && replay.error ? 'red' : 'cyan'}
+            variant={done && !replay.error ? 'green' : done && replay.error ? 'red' : 'violet'}
             size="xs"
           >
             {done && !replay.error ? 'DONE' : done && replay.error ? 'ERROR' : 'RUNNING'}
@@ -289,7 +289,7 @@ function ReplayCard({
           </div>
           <div className="h-1.5 bg-bg-base rounded-full overflow-hidden">
             <div
-              className="h-full bg-accent-cyan rounded-full transition-all"
+              className="h-full bg-accent-primary rounded-full transition-all"
               style={{ width: `${pct}%` }}
             />
           </div>

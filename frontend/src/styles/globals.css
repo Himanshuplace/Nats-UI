@@ -1,52 +1,62 @@
+/* Webfonts must be imported before any other rule (incl. @tailwind) — otherwise
+   PostCSS warns and can drop the @import in production builds. Keep it first. */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ── Design tokens ────────────────────────────────────────────────────────────
-   Zinc-neutral palette. No blue-tinted darks, no glassmorphism.
-   Designed to look intentional — not AI-generated.
-   The `.dark` class on <html> flips the palette automatically.
+/* ── Aura Design System ───────────────────────────────────────────────────────
+   Midnight Violet. Soft glass. Rounded surfaces. Warm depth.
    ─────────────────────────────────────────────────────────────────────────── */
 
 :root {
-  /* Light mode — clean whites with zinc neutrals */
-  --c-bg-base:           250 250 250;   /* zinc-50   */
-  --c-bg-elevated:       255 255 255;   /* white     */
-  --c-bg-surface:        244 244 245;   /* zinc-100  */
-  --c-bg-hover:          240 240 241;   /* zinc-100+ */
-  --c-bg-active:         228 228 231;   /* zinc-200  */
-  --c-bg-border:         228 228 231;   /* zinc-200  */
-  --c-bg-border-strong:  212 212 216;   /* zinc-300  */
-  --c-text-primary:      9   9   11;    /* zinc-950  */
-  --c-text-secondary:    82  82  91;    /* zinc-600  */
-  --c-text-muted:        161 161 170;   /* zinc-400  */
-  --c-text-disabled:     212 212 216;   /* zinc-300  */
-  --c-text-inverse:      250 250 250;   /* zinc-50   */
+  /* ── Light mode ─────────────────────────────────────────────── */
+  --c-bg-base:           246 244 255;
+  --c-bg-elevated:       255 255 255;
+  --c-bg-surface:        238 235 252;
+  --c-bg-hover:          228 224 248;
+  --c-bg-active:         216 210 244;
+  --c-bg-border:         218 212 242;
+  --c-bg-border-strong:  196 188 232;
+  --c-text-primary:      16  12  40;
+  --c-text-secondary:    72  62 120;
+  --c-text-muted:        140 130 176;
+  --c-text-disabled:     196 190 220;
+  --c-text-inverse:      255 255 255;
 
-  --surface-border: rgba(0, 0, 0, 0.07);
-  --surface-border-strong: rgba(0, 0, 0, 0.12);
+  --surface-border:        rgba(100, 80, 180, 0.12);
+  --surface-border-strong: rgba(100, 80, 180, 0.24);
+
+  --accent-primary-rgb:  109  77 228;
+  --accent-primary:      #6d4de4;
+  --accent-primary-dim:  #5a3dc8;
 }
 
 .dark {
-  /* Dark mode — true zinc blacks, no navy tint */
-  --c-bg-base:           9   9   11;    /* zinc-950  */
-  --c-bg-elevated:       24  24  27;    /* zinc-900  */
-  --c-bg-surface:        17  17  20;    /* between 950–900 */
-  --c-bg-hover:          39  39  42;    /* zinc-800  */
-  --c-bg-active:         52  52  56;    /* zinc-700  */
-  --c-bg-border:         39  39  42;    /* zinc-800  */
-  --c-bg-border-strong:  63  63  70;    /* zinc-700  */
-  --c-text-primary:      250 250 250;   /* zinc-50   */
-  --c-text-secondary:    161 161 170;   /* zinc-400  */
-  --c-text-muted:        113 113 122;   /* zinc-500  */
-  --c-text-disabled:     63  63  70;    /* zinc-700  */
-  --c-text-inverse:      9   9   11;    /* zinc-950  */
+  /* ── Midnight Violet ────────────────────────────────────────── */
+  --c-bg-base:           10   8  20;   /* #0a0814 */
+  --c-bg-elevated:       16  13  30;   /* #100d1e */
+  --c-bg-surface:        22  18  40;   /* #161228 */
+  --c-bg-hover:          30  25  54;   /* #1e1936 */
+  --c-bg-active:         38  32  68;   /* #262044 */
+  --c-bg-border:         44  36  80;   /* #2c2450 */
+  --c-bg-border-strong:  68  56 118;   /* #443876 */
+  --c-text-primary:      240 236 255;  /* #f0ecff */
+  --c-text-secondary:    168 156 220;  /* #a89cdc */
+  --c-text-muted:        100  90 148;  /* #645a94 */
+  --c-text-disabled:      50  44  80;  /* #322c50 */
+  --c-text-inverse:       10   8  20;  /* #0a0814 */
 
-  --surface-border: rgba(255, 255, 255, 0.07);
-  --surface-border-strong: rgba(255, 255, 255, 0.12);
+  --surface-border:        rgba(139, 92, 246, 0.14);
+  --surface-border-strong: rgba(139, 92, 246, 0.28);
+
+  --accent-primary-rgb:  167 139 250;  /* violet-400 #a78bfa */
+  --accent-primary:      #a78bfa;
+  --accent-primary-dim:  #8b5cf6;      /* violet-500 */
 }
 
-/* ── Base reset ──────────────────────────────────────────────────────────── */
+/* ── Base reset ────────────────────────────────────────────────────────────── */
 
 @layer base {
   *, *::before, *::after { box-sizing: border-box; }
@@ -59,86 +69,105 @@
   }
 
   body {
-    /* font-sans as the base — use font-mono only for data/code */
     @apply bg-bg-base text-text-primary font-sans;
     overflow: hidden;
+    /* Subtle ambient violet glow at top */
+    background-image:
+      radial-gradient(ellipse 80% 40% at 50% -10%,
+        rgba(var(--accent-primary-rgb) / 0.07) 0%,
+        transparent 70%);
   }
 
-  /* Thin scrollbars */
+  /* Scrollbars — soft rounded */
   ::-webkit-scrollbar       { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
     background: rgb(var(--c-bg-border-strong));
-    border-radius: 9999px;
+    border-radius: 4px;
   }
-  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-text-muted)); }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-primary);
+  }
 
   ::selection {
-    background: rgba(99, 102, 241, 0.2);
-    color: #818cf8;
+    background: rgba(var(--accent-primary-rgb) / 0.28);
+    color: rgb(var(--c-text-primary));
   }
 
   :focus-visible {
     @apply outline-none;
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.4);
-    border-radius: 4px;
+    box-shadow: 0 0 0 2px rgba(var(--accent-primary-rgb) / 0.5);
+    border-radius: 6px;
   }
 }
 
-/* ── Surface utilities ───────────────────────────────────────────────────── */
-/*  Replaces the old glassmorphism. Solid, intentional, designer-grade.     */
+/* ── Surface utilities ─────────────────────────────────────────────────────── */
 
 @layer components {
-  /* Primary surface — elevated panel, sidebar, card */
   .glass {
-    background: rgb(var(--c-bg-elevated));
+    background: rgba(var(--c-bg-elevated), 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--surface-border);
+    border-radius: 14px;
   }
 
-  /* Secondary surface — toolbar, column header, nested panel */
   .glass-sm {
-    background: rgb(var(--c-bg-surface));
+    background: rgba(var(--c-bg-surface), 0.8);
     border: 1px solid var(--surface-border);
+    border-radius: 8px;
   }
 
-  /* Card surface — for cards with slight elevation in light mode */
   .surface-card {
-    background: rgb(var(--c-bg-elevated));
+    background: linear-gradient(
+      145deg,
+      rgb(var(--c-bg-elevated)),
+      rgb(var(--c-bg-surface))
+    );
     border: 1px solid var(--surface-border);
-    border-radius: 0.5rem;
+    border-radius: 14px;
+    box-shadow:
+      0 4px 24px -4px rgba(0, 0, 0, 0.45),
+      0 0 0 1px rgba(255, 255, 255, 0.03) inset;
   }
 
-  /* ── Form inputs ─────────────────────────────────────────────────────── */
+  /* ── Inputs ────────────────────────────────────────────────── */
   .input-base {
-    @apply w-full rounded-md px-3 py-2 text-xs font-mono
+    @apply w-full px-3 py-2 text-xs font-mono
            text-text-primary placeholder-text-muted outline-none
-           transition-colors duration-100;
+           transition-all duration-150;
     background: rgb(var(--c-bg-surface));
     border: 1px solid var(--surface-border);
+    border-radius: 8px;
     font-feature-settings: "tnum" 1;
   }
   .input-base:hover {
     border-color: var(--surface-border-strong);
+    background: rgb(var(--c-bg-hover));
   }
   .input-base:focus {
-    border-color: rgba(99, 102, 241, 0.5);
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+    border-color: rgba(var(--accent-primary-rgb) / 0.6);
+    box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb) / 0.12);
+    background: rgb(var(--c-bg-hover));
   }
 
   .select-base {
-    @apply w-full rounded-md px-3 py-2 text-xs font-mono
-           text-text-primary outline-none transition-colors duration-100;
+    @apply w-full px-3 py-2 text-xs font-mono
+           text-text-primary outline-none transition-all duration-150;
     background: rgb(var(--c-bg-surface));
     border: 1px solid var(--surface-border);
+    border-radius: 8px;
     appearance: auto;
   }
-  .select-base:hover  { border-color: var(--surface-border-strong); }
+  .select-base:hover  {
+    border-color: var(--surface-border-strong);
+  }
   .select-base:focus  {
-    border-color: rgba(99, 102, 241, 0.5);
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+    border-color: rgba(var(--accent-primary-rgb) / 0.6);
+    box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb) / 0.12);
   }
 
-  /* ── Data table ──────────────────────────────────────────────────────── */
+  /* ── Data table ────────────────────────────────────────────── */
   .data-table         { @apply w-full text-xs font-mono border-collapse; }
   .data-table th      {
     @apply px-3 py-1.5 text-2xs text-text-muted font-medium uppercase tracking-wide text-left;
@@ -148,56 +177,109 @@
   }
   .data-table td      {
     @apply px-3 py-2 text-text-secondary;
-    border-bottom: 1px solid var(--surface-border);
+    border-bottom: 1px solid rgba(var(--c-bg-border) / 0.6);
     font-feature-settings: "tnum" 1;
   }
   .data-table tr:hover td {
     @apply text-text-primary;
-    background: rgb(var(--c-bg-hover) / 0.5);
+    background: rgba(var(--c-bg-hover) / 0.6);
   }
 
-  /* ── Terminal pre ────────────────────────────────────────────────────── */
+  /* ── Terminal ──────────────────────────────────────────────── */
   .terminal-pre {
-    @apply rounded-md font-mono text-xs text-text-secondary p-3 overflow-x-auto leading-relaxed;
+    @apply font-mono text-xs text-text-secondary p-3 overflow-x-auto leading-relaxed;
     background: rgb(var(--c-bg-base));
     border: 1px solid var(--surface-border);
+    border-radius: 10px;
   }
 
-  /* ── Kbd ─────────────────────────────────────────────────────────────── */
+  /* ── Keyboard shortcut chip ────────────────────────────────── */
   .kbd {
-    @apply inline-flex items-center justify-center font-sans text-2xs text-text-muted
-           px-1.5 py-0.5 rounded;
+    @apply inline-flex items-center justify-center font-mono text-2xs text-text-muted
+           px-1.5 py-0.5;
     background: rgb(var(--c-bg-surface));
     border: 1px solid var(--surface-border);
-    border-bottom-width: 2px;
+    border-bottom: 2px solid var(--surface-border-strong);
+    border-radius: 5px;
     line-height: 1;
+  }
+
+  /* ── Primary accent button ─────────────────────────────────── */
+  .btn-signal {
+    @apply inline-flex items-center justify-center gap-2
+           text-xs font-sans font-medium
+           transition-all duration-150 cursor-pointer;
+    background: var(--accent-primary);
+    color: rgb(var(--c-text-inverse));
+    border: 1px solid var(--accent-primary);
+    border-radius: 8px;
+    padding: 0.375rem 0.875rem;
+    box-shadow: 0 0 16px -2px rgba(var(--accent-primary-rgb) / 0.4);
+  }
+  .btn-signal:hover {
+    background: var(--accent-primary-dim);
+    border-color: var(--accent-primary-dim);
+    box-shadow: 0 0 20px -2px rgba(var(--accent-primary-rgb) / 0.5);
+  }
+  .btn-signal:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  /* ── Ghost button ──────────────────────────────────────────── */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2
+           text-xs font-sans font-medium text-text-muted
+           transition-all duration-150 cursor-pointer;
+    background: transparent;
+    border: 1px solid var(--surface-border);
+    border-radius: 8px;
+    padding: 0.375rem 0.875rem;
+  }
+  .btn-ghost:hover {
+    color: rgb(var(--c-text-primary));
+    border-color: var(--surface-border-strong);
+    background: rgb(var(--c-bg-hover));
   }
 }
 
-/* ── Shadows ──────────────────────────────────────────────────────────────── */
-/* Shadows only in light mode for elevation; dark mode uses borders instead. */
-.shadow-glass {
-  box-shadow: 0 1px 3px 0 rgba(0,0,0,0.08), 0 1px 2px -1px rgba(0,0,0,0.06);
-}
-.dark .shadow-glass {
-  box-shadow: none;
-}
-
-/* ── ReactFlow overrides ─────────────────────────────────────────────────── */
-
+/* ── ReactFlow ─────────────────────────────────────────────────────────────── */
 .react-flow__attribution    { display: none !important; }
 .react-flow__controls       { background: transparent !important; border: none !important; box-shadow: none !important; }
 .react-flow__controls-button {
   background: rgb(var(--c-bg-elevated)) !important;
   border: 1px solid var(--surface-border) !important;
+  border-radius: 8px !important;
   color: rgb(var(--c-text-muted)) !important;
-  border-radius: 6px !important;
 }
 .react-flow__controls-button:hover { background: rgb(var(--c-bg-hover)) !important; }
 .react-flow__minimap {
-  border-radius: 8px;
-  overflow: hidden;
   border: 1px solid var(--surface-border) !important;
+  border-radius: 10px !important;
   background: rgb(var(--c-bg-elevated)) !important;
 }
-.react-flow__minimap-mask { fill: rgb(var(--c-bg-base) / 0.8) !important; }
+.react-flow__minimap-mask { fill: rgba(0,0,0,0.5) !important; }
+.react-flow__edge-path     { stroke: var(--surface-border-strong) !important; }
+
+/* ── GSAP page transition helpers ─────────────────────────────────────────── */
+.view-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Accent glow utilities ─────────────────────────────────────────────────── */
+.accent-glow {
+  box-shadow: 0 0 24px -4px rgba(var(--accent-primary-rgb) / 0.45);
+}
+
+.accent-text-glow {
+  text-shadow: 0 0 16px rgba(var(--accent-primary-rgb) / 0.6);
+}
+
+/* Legacy — kept for compatibility */
+.lime-glow         { box-shadow: 0 0 20px -4px rgba(var(--accent-primary-rgb) / 0.4); }
+.lime-text-glow    { text-shadow: 0 0 16px rgba(var(--accent-primary-rgb) / 0.6); }

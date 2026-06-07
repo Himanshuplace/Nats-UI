@@ -39,7 +39,7 @@ export function PayloadViewer({ message }: { message: TailedMessage }) {
             className={cn(
               'px-3 py-1.5 text-2xs font-mono transition-colors border-r border-bg-border',
               tab === t.id
-                ? 'text-accent-cyan bg-bg-surface'
+                ? 'text-accent-primary bg-bg-surface'
                 : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover',
             )}
           >
@@ -56,7 +56,7 @@ export function PayloadViewer({ message }: { message: TailedMessage }) {
                 className={cn(
                   'px-1.5 py-0.5 text-2xs font-mono rounded transition-colors',
                   viewMode === mode
-                    ? 'bg-accent-cyan/10 text-accent-cyan'
+                    ? 'bg-accent-primary/10 text-accent-primary'
                     : 'text-text-muted hover:text-text-secondary',
                 )}
               >

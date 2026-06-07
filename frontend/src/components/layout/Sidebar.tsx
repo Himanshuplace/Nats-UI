@@ -2,7 +2,7 @@ import { useCallback, useRef, useLayoutEffect } from 'react'
 import {
   Activity, Server, Layers, Users, Radio, RotateCcw,
   BarChart2, AlertTriangle, Settings, ChevronRight,
-  Plus, Wifi, WifiOff, Shield, DatabaseZap, Send, LayoutDashboard, KeyRound, ArrowLeftRight, Workflow, FlaskConical, ShieldCheck, Package,
+  Plus, Wifi, WifiOff, Shield, DatabaseZap, Send, LayoutDashboard, KeyRound, ArrowLeftRight, Workflow, FlaskConical, ShieldCheck, Package, Gauge,
 } from 'lucide-react'
 import { useUIStore, useDataStore } from '@/store'
 import { api } from '@/lib/api'
@@ -21,6 +21,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { id: 'metrics',   label: 'Metrics',          icon: BarChart2       },
       { id: 'services',  label: 'Services',         icon: Workflow        },
       { id: 'health',    label: 'Health',           icon: ShieldCheck     },
+      { id: 'latency',   label: 'Latency',          icon: Gauge           },
     ],
   },
   {

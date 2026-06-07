@@ -316,6 +316,7 @@ export type View =
   | 'metrics'
   | 'services'
   | 'health'
+  | 'latency'
   | 'dlq'
   | 'accounts'
   | 'settings'
@@ -347,6 +348,19 @@ export interface ServicePingResult {
   minMs:     number
   avgMs:     number
   maxMs:     number
+}
+
+// ── Per-server RTT / latency probe ────────────────────────────────────────────
+
+export interface RTTResult {
+  server:        string
+  connectedUrl?: string
+  reachable:     boolean
+  samples?:      number
+  minMs?:        number
+  avgMs?:        number
+  maxMs?:        number
+  error?:        string
 }
 
 // ── Pull-consumer debugger ────────────────────────────────────────────────────

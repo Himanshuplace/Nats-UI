@@ -402,6 +402,18 @@ type ObjectPutRequest struct {
 	Base64 string `json:"base64,omitempty"`
 }
 
+// RTTResult — round-trip time to one server (GET /clusters/{id}/rtt).
+type RTTResult struct {
+	Server       string  `json:"server"`
+	ConnectedURL string  `json:"connectedUrl,omitempty"`
+	Reachable    bool    `json:"reachable"`
+	Samples      int     `json:"samples,omitempty"`
+	MinMs        float64 `json:"minMs,omitempty"`
+	AvgMs        float64 `json:"avgMs,omitempty"`
+	MaxMs        float64 `json:"maxMs,omitempty"`
+	Error        string  `json:"error,omitempty"`
+}
+
 // ── Metrics ───────────────────────────────────────────────────────────────────
 
 type ThroughputPoint struct {

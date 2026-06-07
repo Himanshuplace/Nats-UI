@@ -103,6 +103,9 @@ func Mount(r chi.Router, hub *gateway.Hub, pool *natsmgr.Pool, dm *discovery.Man
 		r.Get("/clusters/{id}/services", h.listServices)
 		r.Get("/clusters/{id}/services/ping", h.pingServices)
 
+		// Per-server RTT / latency
+		r.Get("/clusters/{id}/rtt", h.rttProbe)
+
 		// Pull-consumer debugger (fetch + ack/nak/term)
 		r.Post("/clusters/{id}/debug/fetch", h.debugFetch)
 		r.Post("/clusters/{id}/debug/ack", h.debugAck)
@@ -807,6 +810,19 @@ func (h *handler) pingServices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *handler) rttProbe(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	results, err := h.inspector.RTTProbe(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if results == nil {
+		results = []types.RTTResult{}
+	}
+	writeJSON(w, http.StatusOK, results)
 }
 
 // ── Pull-consumer debugger ──────────────────────────────────────────────────────

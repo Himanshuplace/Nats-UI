@@ -7,6 +7,7 @@ import type {
   RequestReplyRequest, RequestReplyResult,
   ServiceInfo, ServicePingResult,
   DebugFetchResult,
+  RTTResult,
 } from '@/types'
 import { getToken, clearToken } from './auth'
 
@@ -76,6 +77,7 @@ export const api = {
     health:   (id: string) => get<{ health: string; nodes: number }>(`/clusters/${id}/health`),
     accounts: (id: string) => get<NATSAccount[]>(`/clusters/${id}/accounts`),
     connz:    (id: string) => get<NATSUser[]>(`/clusters/${id}/connz`),
+    rtt:      (id: string) => get<RTTResult[]>(`/clusters/${id}/rtt`),
   },
 
   streams: {

@@ -21,6 +21,7 @@ const VIEW_LABELS: Record<View, string> = {
   metrics:    'Metrics Dashboard',
   services:   'Services',
   health:     'Health & Alerts',
+  latency:    'Server Latency',
   accounts:   'Accounts & Users',
   dlq:        'Dead Letter Queue',
   settings:   'Settings',

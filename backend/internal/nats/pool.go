@@ -198,6 +198,125 @@ func writeTempSecret(pattern, content string) (string, error) {
 	return f.Name(), nil
 }
 
+// authOptions builds the NATS auth options (user/pass, token, creds, nkey, TLS)
+// for a profile, returning any temp credential files the caller must clean up.
+// Mirrors Connect's auth handling; used by ProbeRTT for one-off dials.
+func authOptions(profile types.ConnectionProfile) ([]natsgo.Option, []string, error) {
+	var opts []natsgo.Option
+	var tempFiles []string
+	if profile.Username != "" {
+		opts = append(opts, natsgo.UserInfo(profile.Username, profile.Password))
+	}
+	if profile.Token != "" {
+		opts = append(opts, natsgo.Token(profile.Token))
+	}
+	if profile.CredsContent != "" {
+		path, err := writeTempSecret("natsui-creds-"+profile.ID+"-*.creds", profile.CredsContent)
+		if err != nil {
+			return nil, tempFiles, fmt.Errorf("write creds: %w", err)
+		}
+		tempFiles = append(tempFiles, path)
+		opts = append(opts, natsgo.UserCredentials(path))
+	} else if profile.CredsPath != "" {
+		opts = append(opts, natsgo.UserCredentials(profile.CredsPath))
+	}
+	if profile.NKeySeed != "" {
+		path, err := writeTempSecret("natsui-nkey-"+profile.ID+"-*.nk", profile.NKeySeed)
+		if err != nil {
+			return nil, tempFiles, fmt.Errorf("write nkey seed: %w", err)
+		}
+		tempFiles = append(tempFiles, path)
+		if nk, err := natsgo.NkeyOptionFromSeed(path); err == nil {
+			opts = append(opts, nk)
+		} else {
+			return nil, tempFiles, fmt.Errorf("invalid nkey seed: %w", err)
+		}
+	} else if profile.NKeyPath != "" {
+		if nk, err := natsgo.NkeyOptionFromSeed(profile.NKeyPath); err == nil {
+			opts = append(opts, nk)
+		}
+	}
+	if profile.TLSCert != "" && profile.TLSKey != "" {
+		opts = append(opts, natsgo.ClientCert(profile.TLSCert, profile.TLSKey))
+	}
+	if profile.TLSCAContent != "" {
+		path, err := writeTempSecret("natsui-ca-"+profile.ID+"-*.pem", profile.TLSCAContent)
+		if err != nil {
+			return nil, tempFiles, fmt.Errorf("write tls ca: %w", err)
+		}
+		tempFiles = append(tempFiles, path)
+		opts = append(opts, natsgo.RootCAs(path))
+	} else if profile.TLSCA != "" {
+		opts = append(opts, natsgo.RootCAs(profile.TLSCA))
+	}
+	return opts, tempFiles, nil
+}
+
+// ProbeRTT dials a single server URL (reusing the managed connection's auth)
+// and measures round-trip time over a few PINGs.
+func (p *Pool) ProbeRTT(clusterID, serverURL string, samples int) types.RTTResult {
+	res := types.RTTResult{Server: serverURL}
+	mc, ok := p.Get(clusterID)
+	if !ok {
+		res.Error = "cluster not connected"
+		return res
+	}
+	authOpts, tempFiles, err := authOptions(mc.Profile)
+	defer func() {
+		for _, f := range tempFiles {
+			_ = os.Remove(f)
+		}
+	}()
+	if err != nil {
+		res.Error = err.Error()
+		return res
+	}
+	if samples < 1 {
+		samples = 5
+	}
+	opts := append([]natsgo.Option{
+		natsgo.Name("natsui-rttprobe"),
+		natsgo.Timeout(5 * time.Second),
+		natsgo.MaxReconnects(0),
+	}, authOpts...)
+
+	nc, err := natsgo.Connect(serverURL, opts...)
+	if err != nil {
+		res.Error = err.Error()
+		return res
+	}
+	defer nc.Close()
+	res.ConnectedURL = nc.ConnectedUrl()
+
+	var minD, maxD, sumD time.Duration
+	n := 0
+	for i := 0; i < samples; i++ {
+		rtt, rerr := nc.RTT()
+		if rerr != nil {
+			continue
+		}
+		if n == 0 || rtt < minD {
+			minD = rtt
+		}
+		if rtt > maxD {
+			maxD = rtt
+		}
+		sumD += rtt
+		n++
+		time.Sleep(15 * time.Millisecond)
+	}
+	if n == 0 {
+		res.Error = "no RTT samples"
+		return res
+	}
+	res.Reachable = true
+	res.Samples = n
+	res.MinMs = float64(minD.Microseconds()) / 1000
+	res.MaxMs = float64(maxD.Microseconds()) / 1000
+	res.AvgMs = float64(sumD.Microseconds()) / 1000 / float64(n)
+	return res
+}
+
 // ConnectURL is a convenience method for connecting with just a URL.
 func (p *Pool) ConnectURL(id, url string) (*ManagedConn, error) {
 	return p.Connect(types.ConnectionProfile{

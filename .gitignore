@@ -46,3 +46,14 @@ natsui-config/
 # Coverage
 coverage/
 *.coverprofile
+
+# Dev verification artifacts (headed Playwright scripts + screenshots)
+frontend/verify-*.mjs
+verify-shots/
+
+# Claude Code local settings
+.claude/
+
+# Graphify (generated knowledge graph — regenerate with `graphify update .`)
+graphify-out/
+frontend/.graphify_python

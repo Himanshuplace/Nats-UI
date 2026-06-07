@@ -312,9 +312,39 @@ export type View =
   | 'request'
   | 'replay'
   | 'metrics'
+  | 'services'
   | 'dlq'
   | 'accounts'
   | 'settings'
+
+// ── NATS micro Services ───────────────────────────────────────────────────────
+
+export interface ServiceEndpointStat {
+  name:             string
+  subject:          string
+  queueGroup?:      string
+  numRequests:      number
+  numErrors:        number
+  processingTimeNs: number
+  avgProcessingNs:  number
+  lastError?:       string
+}
+
+export interface ServiceInfo {
+  name:        string
+  version:     string
+  instances:   number
+  numRequests: number
+  numErrors:   number
+  endpoints:   ServiceEndpointStat[]
+}
+
+export interface ServicePingResult {
+  instances: number
+  minMs:     number
+  avgMs:     number
+  maxMs:     number
+}
 
 // ── Request–Reply ─────────────────────────────────────────────────────────────
 

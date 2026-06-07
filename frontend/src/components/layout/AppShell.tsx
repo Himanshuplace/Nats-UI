@@ -55,6 +55,7 @@ const MessagePublisher  = lazy(() => import('@/components/publisher/MessagePubli
 const RequestReplyConsole = lazy(() => import('@/components/request/RequestReplyConsole').then(m => ({ default: m.RequestReplyConsole })))
 const ReplayStudio      = lazy(() => import('@/components/replay/ReplayStudio').then(m => ({ default: m.ReplayStudio })))
 const MetricsDashboard  = lazy(() => import('@/components/metrics/MetricsDashboard').then(m => ({ default: m.MetricsDashboard })))
+const ServicesExplorer  = lazy(() => import('@/components/services/ServicesExplorer').then(m => ({ default: m.ServicesExplorer })))
 const AccountsView      = lazy(() => import('@/components/accounts/AccountsView').then(m => ({ default: m.AccountsView })))
 
 function ViewFallback() {
@@ -337,6 +338,7 @@ export function AppShell() {
       case 'request':   return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><RequestReplyConsole /></ViewErrorBoundary></Suspense>
       case 'replay':    return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><ReplayStudio /></ViewErrorBoundary></Suspense>
       case 'metrics':   return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><MetricsDashboard /></ViewErrorBoundary></Suspense>
+      case 'services':  return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><ServicesExplorer /></ViewErrorBoundary></Suspense>
       case 'accounts':  return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><AccountsView /></ViewErrorBoundary></Suspense>
       case 'dlq':       return <DLQPlaceholder />
       case 'settings':  return <SettingsView />

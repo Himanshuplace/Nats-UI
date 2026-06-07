@@ -98,6 +98,10 @@ func Mount(r chi.Router, hub *gateway.Hub, pool *natsmgr.Pool, dm *discovery.Man
 		// Subjects
 		r.Get("/clusters/{id}/subjects", h.listSubjects)
 
+		// Services (micro $SRV discovery)
+		r.Get("/clusters/{id}/services", h.listServices)
+		r.Get("/clusters/{id}/services/ping", h.pingServices)
+
 		// Key-Value (keys via ?key= query param)
 		r.Get("/clusters/{id}/kv", h.listKVBuckets)
 		r.Post("/clusters/{id}/kv", h.createKVBucket)
@@ -761,6 +765,31 @@ func (h *handler) request(w http.ResponseWriter, r *http.Request) {
 	result, err := h.inspector.RequestReply(r.Context(), id, req)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// ── Services (micro) ────────────────────────────────────────────────────────────
+
+func (h *handler) listServices(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	services, err := h.inspector.ListServices(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if services == nil {
+		services = []types.ServiceInfo{}
+	}
+	writeJSON(w, http.StatusOK, services)
+}
+
+func (h *handler) pingServices(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	result, err := h.inspector.PingServices(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, result)

@@ -17,6 +17,7 @@ const VIEW_LABELS: Record<View, string> = {
   request:    'Request–Reply',
   replay:     'Replay Studio',
   metrics:    'Metrics Dashboard',
+  services:   'Services',
   accounts:   'Accounts & Users',
   dlq:        'Dead Letter Queue',
   settings:   'Settings',

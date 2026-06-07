@@ -248,6 +248,38 @@ type RequestReplyResult struct {
 	TimedOut     bool              `json:"timedOut,omitempty"`
 }
 
+// ── NATS micro Services ─────────────────────────────────────────────────────────
+
+// ServiceEndpointStat aggregates one endpoint's stats across instances.
+type ServiceEndpointStat struct {
+	Name             string `json:"name"`
+	Subject          string `json:"subject"`
+	QueueGroup       string `json:"queueGroup,omitempty"`
+	NumRequests      int64  `json:"numRequests"`
+	NumErrors        int64  `json:"numErrors"`
+	ProcessingTimeNs int64  `json:"processingTimeNs"`
+	AvgProcessingNs  int64  `json:"avgProcessingNs"`
+	LastError        string `json:"lastError,omitempty"`
+}
+
+// ServiceInfo is a discovered micro service, aggregated across its instances.
+type ServiceInfo struct {
+	Name        string                `json:"name"`
+	Version     string                `json:"version"`
+	Instances   int                   `json:"instances"`
+	NumRequests int64                 `json:"numRequests"`
+	NumErrors   int64                 `json:"numErrors"`
+	Endpoints   []ServiceEndpointStat `json:"endpoints"`
+}
+
+// ServicePingResult — response from GET /clusters/{id}/services/ping.
+type ServicePingResult struct {
+	Instances int     `json:"instances"`
+	MinMs     float64 `json:"minMs"`
+	AvgMs     float64 `json:"avgMs"`
+	MaxMs     float64 `json:"maxMs"`
+}
+
 // ── Key-Value store ─────────────────────────────────────────────────────────────
 
 // KVBucketInfo summarizes a JetStream KV bucket (backed by a KV_* stream).

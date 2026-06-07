@@ -4,6 +4,7 @@ import type {
   StoredMessage, PublishRequest, PublishResult, SubjectInfo,
   KVBucketInfo, KVEntry, KVBucketConfig,
   RequestReplyRequest, RequestReplyResult,
+  ServiceInfo, ServicePingResult,
 } from '@/types'
 import { getToken, clearToken } from './auth'
 
@@ -133,6 +134,11 @@ export const api = {
 
   request: (clusterId: string, req: RequestReplyRequest) =>
     post<RequestReplyResult>(`/clusters/${clusterId}/request`, req),
+
+  services: {
+    list: (clusterId: string) => get<ServiceInfo[]>(`/clusters/${clusterId}/services`),
+    ping: (clusterId: string) => get<ServicePingResult>(`/clusters/${clusterId}/services/ping`),
+  },
 
   metrics: {
     throughput: (clusterId: string) => get<unknown>(`/clusters/${clusterId}/metrics/throughput`),

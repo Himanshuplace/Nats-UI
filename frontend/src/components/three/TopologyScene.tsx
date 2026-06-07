@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { TrackballControls, Grid, Edges, Html, Line, Text, Billboard } from '@react-three/drei'
+import { TrackballControls, Grid, Edges, Html, Line, Text, Billboard, Environment, Lightformer, MeshReflectorMaterial } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { ws } from '@/lib/ws'
@@ -106,9 +106,10 @@ interface HexNodeProps {
   hovered:  boolean
   onOver:   () => void
   onOut:    () => void
+  onDown:   () => void
 }
 
-function HexNode({ node, position, hovered, onOver, onOut }: HexNodeProps) {
+function HexNode({ node, position, hovered, onOver, onOut, onDown }: HexNodeProps) {
   const matRef  = useRef<THREE.MeshStandardMaterial>(null)
   const meshRef = useRef<THREE.Mesh>(null)
   const col = useMemo(() => new THREE.Color(healthHex(node.health)), [node.health])
@@ -143,16 +144,18 @@ function HexNode({ node, position, hovered, onOver, onOut }: HexNodeProps) {
         ref={meshRef}
         position={[0, NODE_Y, 0]}
         rotation={[0, Math.PI / 6, 0]}
-        onPointerOver={(e) => { e.stopPropagation(); onOver() }}
-        onPointerOut={(e) => { e.stopPropagation(); onOut() }}
+        onPointerOver={(e) => { e.stopPropagation(); onOver(); document.body.style.cursor = 'grab' }}
+        onPointerOut={(e) => { e.stopPropagation(); onOut(); document.body.style.cursor = 'auto' }}
+        onPointerDown={(e) => { e.stopPropagation(); document.body.style.cursor = 'grabbing'; onDown() }}
       >
         <cylinderGeometry args={[HEX_R, HEX_R, HEX_H, 6]} />
         <meshStandardMaterial
           ref={matRef}
-          color="#0a1a22" emissive={col} emissiveIntensity={1}
-          metalness={0.55} roughness={0.25} transparent opacity={0.82}
+          color="#0a1322" emissive={col} emissiveIntensity={1}
+          metalness={0.9} roughness={0.16} envMapIntensity={1.35}
+          transparent opacity={0.9}
         />
-        <Edges threshold={15} color={hpx} lineWidth={1.6} transparent opacity={0.92} />
+        <Edges threshold={15} color={hpx} lineWidth={1.8} transparent opacity={0.95} />
       </mesh>
 
       {/* Leader crown */}
@@ -529,41 +532,91 @@ function SceneContent({ nodes, routes, pulseQueue }: {
   routes: RouteInfo[]
   pulseQueue: MutableRefObject<FlowPulse[]>
 }) {
-  const positions = useMemo(() => layout(nodes.length), [nodes.length])
-  const [hovered, setHovered] = useState<number | null>(null)
+  // Base layout (auto) + optional per-node drag overrides. `positions` falls back
+  // to the layout whenever the node count changes, so consumers never see a
+  // length mismatch and dragging resets cleanly on topology changes.
+  const basePositions = useMemo(() => layout(nodes.length), [nodes.length])
+  const [dragPositions, setDragPositions] = useState<THREE.Vector3[] | null>(null)
+  const positions = dragPositions && dragPositions.length === nodes.length ? dragPositions : basePositions
 
-  // keep hovered index valid if node count changes
+  const [hovered, setHovered] = useState<number | null>(null)
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const controlsRef = useRef<any>(null)
+
   useEffect(() => { if (hovered !== null && hovered >= nodes.length) setHovered(null) }, [nodes.length, hovered])
+
+  // End a drag on any global pointer-up (covers releasing off the drag plane).
+  useEffect(() => {
+    if (dragIndex === null) return
+    const end = () => {
+      setDragIndex(null)
+      if (controlsRef.current) controlsRef.current.enabled = true
+      document.body.style.cursor = 'auto'
+    }
+    window.addEventListener('pointerup', end)
+    return () => window.removeEventListener('pointerup', end)
+  }, [dragIndex])
+
+  const startDrag = (i: number) => {
+    setDragIndex(i)
+    if (controlsRef.current) controlsRef.current.enabled = false   // freeze camera while dragging a node
+  }
+  const onDragMove = (e: any) => {
+    if (dragIndex === null) return
+    e.stopPropagation()
+    const p = e.point as THREE.Vector3
+    setDragPositions(positions.map((q, idx) => idx === dragIndex ? new THREE.Vector3(p.x, 0, p.z) : q))
+  }
 
   return (
     <>
       <color attach="background" args={[BG]} />
-      <fog attach="fog" args={[BG, 30, 130]} />
+      <fog attach="fog" args={[BG, 34, 140]} />
 
-      <ambientLight intensity={0.5} />
-      <pointLight position={[0, 16, 8]}  intensity={0.8} color={CYAN_HEX}   distance={70} />
-      <pointLight position={[-12, 9, -12]} intensity={0.4} color={VIOLET_HEX} distance={70} />
+      <ambientLight intensity={0.4} />
+      <pointLight position={[0, 16, 8]}    intensity={0.9} color={CYAN_HEX}   distance={80} />
+      <pointLight position={[-14, 10, -12]} intensity={0.5} color={VIOLET_HEX} distance={80} />
 
-      {/* Matte floor — grounds the scene without the costly mirror render-target
-          (MeshReflectorMaterial's extra pass was the scene's biggest GPU cost). */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.08, 0]}>
-        <planeGeometry args={[120, 120]} />
-        <meshStandardMaterial color="#05060d" metalness={0.3} roughness={0.85} />
+      {/* In-scene image-based lighting (no network fetch) — gives the glass/metal
+          nodes real reflections so they read as premium instead of flat plastic. */}
+      <Environment resolution={128} frames={1}>
+        <Lightformer form="rect"   intensity={2.4} color="#22d3ee" position={[7, 6, 7]}   scale={[9, 9, 1]} />
+        <Lightformer form="rect"   intensity={1.5} color="#a78bfa" position={[-9, 5, -7]}  scale={[9, 9, 1]} />
+        <Lightformer form="circle" intensity={1.7} color="#ffffff" position={[0, 12, 0]}   scale={[7, 7, 1]} />
+      </Environment>
+
+      {/* Reflective floor — mirrors the glowing nodes for depth + a premium finish.
+          Single-sided so it culls from below (the grid stays visible underneath). */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.06, 0]}>
+        <planeGeometry args={[160, 160]} />
+        <MeshReflectorMaterial
+          resolution={256}
+          mirror={0.5}
+          mixBlur={8}
+          mixStrength={1.3}
+          blur={[300, 120]}
+          minDepthThreshold={0.4}
+          maxDepthThreshold={1.2}
+          depthScale={1.1}
+          metalness={0.6}
+          roughness={0.85}
+          color="#04060c"
+        />
       </mesh>
 
       <Grid
-        position={[0, -0.02, 0]}
+        position={[0, 0, 0]}
         args={[80, 80]}
         cellSize={1} cellThickness={0.5} cellColor="#0d343d"
         sectionSize={5} sectionThickness={1} sectionColor="#155e6b"
-        fadeDistance={46} fadeStrength={1.6} infiniteGrid
+        fadeDistance={48} fadeStrength={1.6} infiniteGrid
         side={THREE.DoubleSide}
       />
 
       <EdgeWires nodes={nodes} routes={routes} positions={positions} />
       <Packets nodes={nodes} routes={routes} positions={positions} pulseQueue={pulseQueue} />
 
-      {nodes.map((n, i) => (
+      {nodes.map((n, i) => positions[i] && (
         <HexNode
           key={n.id}
           node={n}
@@ -571,6 +624,7 @@ function SceneContent({ nodes, routes, pulseQueue }: {
           hovered={hovered === i}
           onOver={() => setHovered(i)}
           onOut={() => setHovered(h => (h === i ? null : h))}
+          onDown={() => startDrag(i)}
         />
       ))}
 
@@ -578,10 +632,19 @@ function SceneContent({ nodes, routes, pulseQueue }: {
         <NodeTooltip node={nodes[hovered]} position={positions[hovered]} />
       )}
 
-      {/* Gimbal-free trackball — spin a full 360° around ANY axis and return to
-          the same orientation. No top/bottom poles or walls (unlike OrbitControls).
-          Left-drag = tumble · scroll = zoom · right-drag = pan. */}
+      {/* Invisible drag plane — present only while dragging; converts the pointer
+          to a floor (x,z) position so you can grab a node and reposition it. */}
+      {dragIndex !== null && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, NODE_Y, 0]} onPointerMove={onDragMove}>
+          <planeGeometry args={[800, 800]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
+      )}
+
+      {/* Gimbal-free trackball — tumble a full 360° around any axis. Frozen while
+          dragging a node. Left-drag = tumble · scroll = zoom · right-drag = pan. */}
       <TrackballControls
+        ref={controlsRef}
         makeDefault
         rotateSpeed={3.4}
         zoomSpeed={1.3}
@@ -592,16 +655,15 @@ function SceneContent({ nodes, routes, pulseQueue }: {
         maxDistance={120}
       />
 
-      {/* Restrained finish — only the brightest cores bloom, so labels stay crisp. */}
       <EffectComposer multisampling={2}>
         <Bloom
-          intensity={0.28}
-          luminanceThreshold={0.72}
+          intensity={0.42}
+          luminanceThreshold={0.62}
           luminanceSmoothing={0.9}
           mipmapBlur
-          radius={0.45}
+          radius={0.6}
         />
-        <Vignette eskil={false} offset={0.3} darkness={0.72} />
+        <Vignette eskil={false} offset={0.28} darkness={0.78} />
       </EffectComposer>
     </>
   )

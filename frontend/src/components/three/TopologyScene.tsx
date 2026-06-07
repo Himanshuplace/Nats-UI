@@ -1,531 +1,653 @@
 /**
- * TopologyScene — 3D extruded hex grid, real message particles, interactive hover.
+ * TopologyScene — real WebGL 3D NATS cluster topology (data-first).
  *
- * Nodes are isometric-style extruded hexagonal platforms.
- * Particles are spawned proportional to actual node outMsgs/inMsgs rates —
- * if a node is idle, no particles flow from it. Direction follows the route.
- * Hover a node to see a detailed stat card.
+ * Each NATS server is a glassy hexagonal prism on a holographic grid. Nodes
+ * show live health + in/out counts; connection wires thicken & brighten with
+ * REAL relative route load. Every travelling square is ONE real message sampled
+ * from a filtered ">" feed (app subjects = cyan, internal $…/_… = amber), with
+ * the newest packets carrying their subject as a tag. Nothing is synthetic.
  *
- * Pure Canvas 2D + React overlay for tooltip.
+ * Rendered with @react-three/fiber + drei (lazy-loaded by ClusterTopology so
+ * Three.js never touches the initial bundle).
  */
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
+import { Canvas, useFrame } from '@react-three/fiber'
+import { TrackballControls, Grid, Edges, Html, Line, Text, Billboard } from '@react-three/drei'
+import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
+import * as THREE from 'three'
+import { ws } from '@/lib/ws'
 import type { NodeInfo, RouteInfo } from '@/types'
 
 export interface TopologySceneProps {
+  clusterId:       string
   nodes:           NodeInfo[]
   routes:          RouteInfo[]
   totalThroughput: number
+  /** When true (default) only external/app subjects show; internal NATS &
+   *  JetStream traffic ($…, _…) is hidden. Driven by the cluster-bar toggle. */
+  externalOnly:    boolean
 }
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// ── Palette (holographic datacenter) ───────────────────────────────────────────
+const BG          = '#06070f'
+const CYAN_HEX    = '#22d3ee'
+const AMBER_HEX   = '#f59e0b'
+const RED_HEX     = '#ef4444'
+const VIOLET_HEX  = '#a78bfa'
 
-const BG      = '#04090f'
-const HEX_R   = 48      // radius center → vertex
-const DEPTH   = 13      // 3D extrusion depth (px)
-const DASH_V  = 48      // dash animation speed (px/s)
+const NODE_Y = 0.5   // vertical center of a node (particles travel through here)
+const HEX_H  = 0.7   // prism height
+const HEX_R  = 1.15  // prism radius
+const SCRATCH_SCALE = new THREE.Vector3()  // reused each frame (avoids per-frame alloc)
 
-type RGB = readonly [number, number, number]
-const CYAN  : RGB = [6,   182, 212]
-const AMBER : RGB = [245, 158,  11]
-const RED   : RGB = [239,  68,  68]
-const WHITE : RGB = [255, 255, 255]
-const DARK  : RGB = [4,    9,  15]
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-const c = ([r,g,b]: RGB, a: number) => `rgba(${r},${g},${b},${a.toFixed(3)})`
-
-function healthRGB(h: string): RGB {
-  if (h === 'critical') return RED
-  if (h === 'degraded') return AMBER
-  return CYAN
+function healthHex(h: string): string {
+  if (h === 'critical') return RED_HEX
+  if (h === 'degraded') return AMBER_HEX
+  return CYAN_HEX
 }
 
-/** Flat-top hex vertices around (cx, cy). */
-function hexVerts(cx: number, cy: number, r: number): [number, number][] {
-  return Array.from({ length: 6 }, (_, i) => {
-    const a = (Math.PI / 3) * i + Math.PI / 6   // flat-top: 30°, 90°, …
-    return [cx + r * Math.cos(a), cy + r * Math.sin(a)] as [number, number]
-  })
+/** 0..1 relative busyness from cumulative counters (drives glow brightness). */
+function activity(n: NodeInfo): number {
+  const total = (n.inMsgs ?? 0) + (n.outMsgs ?? 0)
+  return Math.min(1, Math.log10(1 + total) / 7)
 }
 
-/** Trace a closed hex path onto ctx. */
-function hexPath(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
-  const v = hexVerts(cx, cy, r)
-  ctx.beginPath()
-  ctx.moveTo(v[0][0], v[0][1])
-  for (let i = 1; i < 6; i++) ctx.lineTo(v[i][0], v[i][1])
-  ctx.closePath()
+/** Full exact number with thousands separators — 4823915 → "4,823,915". */
+function full(n: number): string {
+  return Math.round(n ?? 0).toLocaleString('en-US')
 }
 
-/** Draw extruded 3D hex platform (top face + 3 visible walls). */
-function draw3DHex(
-  ctx: CanvasRenderingContext2D,
-  cx: number, cy: number,
-  r: number,
-  col: RGB,
-  glowAlpha: number,   // 0-1 — boosted on hover
-) {
-  const v  = hexVerts(cx, cy, r)
-  const d  = DEPTH
-
-  // ── Walls — only the 3 bottom-facing edges are visible ──────────────────
-  // flat-top vertex layout: 0=right-bottom, 1=bottom, 2=left-bottom,
-  //                         3=left-top, 4=top, 5=right-top
-  // Visible faces looking from slightly above: edges 5→0, 0→1, 1→2
-  const wallEdges: [number, number][] = [[5, 0], [0, 1], [1, 2]]
-
-  for (const [a, b] of wallEdges) {
-    const [x1, y1] = v[a]
-    const [x2, y2] = v[b]
-    ctx.beginPath()
-    ctx.moveTo(x1, y1)
-    ctx.lineTo(x2, y2)
-    ctx.lineTo(x2, y2 + d)
-    ctx.lineTo(x1, y1 + d)
-    ctx.closePath()
-    const wg = ctx.createLinearGradient(cx, cy, cx, cy + d + 10)
-    wg.addColorStop(0, c(col, 0.22 * glowAlpha))
-    wg.addColorStop(1, c(DARK, 0.85))
-    ctx.fillStyle = wg
-    ctx.fill()
-    ctx.strokeStyle = c(col, 0.18 * glowAlpha)
-    ctx.lineWidth = 0.6
-    ctx.stroke()
-  }
-
-  // ── Bottom face shadow ───────────────────────────────────────────────────
-  hexPath(ctx, cx, cy + d, r - 2)
-  ctx.fillStyle = c(DARK, 0.6)
-  ctx.fill()
-
-  // ── Top face fill ────────────────────────────────────────────────────────
-  hexPath(ctx, cx, cy, r)
-  const fg = ctx.createRadialGradient(cx, cy - r * 0.2, 0, cx, cy, r)
-  fg.addColorStop(0,   c(col, 0.20 * glowAlpha))
-  fg.addColorStop(0.5, c(col, 0.10 * glowAlpha))
-  fg.addColorStop(1,   c(DARK, 0.9))
-  ctx.fillStyle = fg
-  ctx.fill()
-
-  // ── Top face border (glowing) ────────────────────────────────────────────
-  // glowAlpha already encodes the per-node pulse phase — no Date.now() needed
-  ctx.save()
-  ctx.shadowColor = c(col, 0.7 * glowAlpha)
-  ctx.shadowBlur  = 12 * glowAlpha
-  hexPath(ctx, cx, cy, r)
-  ctx.strokeStyle = c(col, 0.65 * glowAlpha)
-  ctx.lineWidth   = 1.5
-  ctx.stroke()
-  ctx.restore()
-
-  // ── Vertex accent dots ───────────────────────────────────────────────────
-  for (const [vx, vy] of v) {
-    ctx.fillStyle = c(col, 0.8 * glowAlpha)
-    ctx.beginPath()
-    ctx.arc(vx, vy, 2.2, 0, Math.PI * 2)
-    ctx.fill()
-  }
-
-  // ── Inner bevel highlight (top edge glow) ────────────────────────────────
-  hexPath(ctx, cx, cy, r - 3)
-  ctx.strokeStyle = c(WHITE, 0.04 * glowAlpha)
-  ctx.lineWidth = 1
-  ctx.stroke()
+/** Human-readable byte size with the exact count — 1572864 → "1.5 MB (1,572,864 B)". */
+function bytes(n: number): string {
+  n = n ?? 0
+  if (n < 1024) return `${n} B`
+  const u = ['KB', 'MB', 'GB', 'TB']
+  let v = n, i = -1
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
+  return `${v.toFixed(1)} ${u[i]} (${full(n)} B)`
 }
 
-/** Arrange nodes evenly in a circle. Single node is centered. */
-function layoutNodes(n: number, W: number, H: number): [number, number][] {
-  if (n === 0) return []
-  if (n === 1) return [[W / 2, H / 2]]
-  const r = Math.min(W, H) * 0.30
+/** Lay nodes out on the floor (XZ plane). Single node is centered. */
+function layout(n: number): THREE.Vector3[] {
+  if (n <= 0) return []
+  if (n === 1) return [new THREE.Vector3(0, 0, 0)]
+  const R = Math.max(3.4, n * 0.95)
   return Array.from({ length: n }, (_, i) => {
     const a = (i / n) * Math.PI * 2 - Math.PI / 2
-    return [W / 2 + Math.cos(a) * r, H / 2 + Math.sin(a) * r]
+    return new THREE.Vector3(Math.cos(a) * R, 0, Math.sin(a) * R)
   })
 }
 
-function fmt(n: number) {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
-  if (n >= 1_000)     return (n / 1_000).toFixed(1)     + 'K'
-  return String(n)
+// ── Glow sprite texture (shared) ────────────────────────────────────────────────
+let _glowTex: THREE.Texture | null = null
+function glowTexture(): THREE.Texture {
+  if (_glowTex) return _glowTex
+  const c = document.createElement('canvas')
+  c.width = c.height = 64
+  const g = c.getContext('2d')!
+  const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32)
+  grd.addColorStop(0,    'rgba(255,255,255,1)')
+  grd.addColorStop(0.25, 'rgba(255,255,255,0.85)')
+  grd.addColorStop(0.5,  'rgba(255,255,255,0.3)')
+  grd.addColorStop(1,    'rgba(255,255,255,0)')
+  g.fillStyle = grd
+  g.fillRect(0, 0, 64, 64)
+  const t = new THREE.CanvasTexture(c)
+  t.needsUpdate = true
+  _glowTex = t
+  return t
 }
 
-// ── Particle type ─────────────────────────────────────────────────────────────
+// ── Node ────────────────────────────────────────────────────────────────────────
 
-interface MsgParticle {
-  fromIdx: number
-  toIdx:   number
-  t:       number             // 0 → 1 along the edge
-  speed:   number             // fraction / second
-  trail:   [number, number][]
+interface HexNodeProps {
+  node:     NodeInfo
+  position: THREE.Vector3
+  hovered:  boolean
+  onOver:   () => void
+  onOut:    () => void
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+function HexNode({ node, position, hovered, onOver, onOut }: HexNodeProps) {
+  const matRef  = useRef<THREE.MeshStandardMaterial>(null)
+  const meshRef = useRef<THREE.Mesh>(null)
+  const col = useMemo(() => new THREE.Color(healthHex(node.health)), [node.health])
+  const act = activity(node)
+  const hpx = healthHex(node.health)
 
-export function TopologyScene({ nodes, routes, totalThroughput }: TopologySceneProps) {
-  const canvasRef    = useRef<HTMLCanvasElement>(null)
-  const nodesRef     = useRef(nodes)
-  const routesRef    = useRef(routes)
-  const tpRef        = useRef(totalThroughput)
-  const particles    = useRef<MsgParticle[]>([])
-  const dashOff      = useRef(0)
-  const pulsePhase   = useRef<number[]>([])
-  const lastTs       = useRef(0)
-  const posRef       = useRef<[number, number][]>([])
-
-  nodesRef.current  = nodes
-  routesRef.current = routes
-  tpRef.current     = totalThroughput
-
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
-  const hoveredIdxRef = useRef<number | null>(null)   // mirror for canvas loop (avoids stale closure)
-  const [tipPos,     setTipPos]     = useState({ x: 0, y: 0 })
-
-  // Re-seed pulse phases when node count changes
-  useEffect(() => {
-    pulsePhase.current = nodes.map(() => Math.random() * Math.PI * 2)
-    particles.current  = []
-  }, [nodes.length]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Mouse interaction
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const rect = canvas.getBoundingClientRect()
-    const mx   = (e.clientX - rect.left) / rect.width  * canvas.offsetWidth
-    const my   = (e.clientY - rect.top)  / rect.height * canvas.offsetHeight
-    let found  = -1
-    for (let i = 0; i < posRef.current.length; i++) {
-      const [nx, ny] = posRef.current[i]
-      if (Math.sqrt((mx - nx) ** 2 + (my - ny) ** 2) < HEX_R) { found = i; break }
+  // Steady, readable nodes — emissive eases toward a target set by real activity
+  // & hover (no sinusoidal "breathing"), and the prism grows slightly on hover.
+  useFrame(() => {
+    if (matRef.current) {
+      const target = (hovered ? 1.7 : 1) * (0.5 + act * 1.15)
+      matRef.current.emissiveIntensity += (target - matRef.current.emissiveIntensity) * 0.12
     }
-    const next = found === -1 ? null : found
-    hoveredIdxRef.current = next
-    setHoveredIdx(next)
-    setTipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-  }, [])
-
-  const handleMouseLeave = useCallback(() => { hoveredIdxRef.current = null; setHoveredIdx(null) }, [])
-
-  // Canvas setup + animation loop
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')!
-
-    canvas.addEventListener('mousemove',  handleMouseMove)
-    canvas.addEventListener('mouseleave', handleMouseLeave)
-
-    const observer = new ResizeObserver(() => {
-      canvas.width  = canvas.offsetWidth  * devicePixelRatio
-      canvas.height = canvas.offsetHeight * devicePixelRatio
-    })
-    observer.observe(canvas)
-    canvas.width  = canvas.offsetWidth  * devicePixelRatio
-    canvas.height = canvas.offsetHeight * devicePixelRatio
-
-    let raf: number
-
-    const tick = (ts: number) => {
-      const dt = Math.min((ts - (lastTs.current || ts)) / 1000, 0.05)
-      lastTs.current = ts
-
-      const W   = canvas.offsetWidth
-      const H   = canvas.offsetHeight
-      const dpr = devicePixelRatio
-      const ns  = nodesRef.current
-      const rs  = routesRef.current
-
-      ctx.save()
-      ctx.scale(dpr, dpr)
-      ctx.clearRect(0, 0, W, H)
-
-      const positions = layoutNodes(ns.length, W, H)
-      posRef.current  = positions
-      dashOff.current -= dt * DASH_V
-
-      // ── Hex tile background ─────────────────────────────────────────────
-      const bSize = 18
-      const bCol  = bSize * Math.sqrt(3)
-      const bRow  = bSize * 1.5
-      ctx.strokeStyle = c(CYAN, 0.035)
-      ctx.lineWidth   = 0.4
-      for (let row = -1; row * bRow < H + bSize * 2; row++) {
-        for (let col = -1; col * bCol + (row % 2 ? bCol / 2 : 0) < W + bSize * 2; col++) {
-          const bx = col * bCol + (row % 2 ? bCol / 2 : 0)
-          const by = row * bRow
-          hexPath(ctx, bx, by, bSize - 1)
-          ctx.stroke()
-        }
-      }
-
-      // ── Build / refresh particles based on REAL message rates ───────────
-      // Map node ID → index
-      const idToIdx = new Map(ns.map((n, i) => [n.id, i]))
-
-      // For each route, compute desired particle count per direction
-      type RouteSlot = { fi: number; ti: number; rate: number }
-      const slots: RouteSlot[] = []
-
-      for (const rt of rs) {
-        const fi = idToIdx.get(rt.from) ?? -1
-        const ti = idToIdx.get(rt.to)   ?? -1
-        if (fi === -1 || ti === -1) continue
-        const numRoutes = Math.max(rs.length, 1)
-
-        // Forward: node[fi] output distributed across its routes
-        const fwdRate = (ns[fi].outMsgs ?? 0) / numRoutes
-        // Backward: node[ti] output distributed across its routes
-        const bwdRate = (ns[ti].outMsgs ?? 0) / numRoutes
-
-        if (fwdRate > 0) slots.push({ fi, ti, rate: fwdRate })
-        if (bwdRate > 0) slots.push({ fi: ti, ti: fi, rate: bwdRate })
-      }
-
-      // For clusters with no routes yet but active nodes, use totals
-      if (slots.length === 0 && ns.length >= 2 && tpRef.current > 0) {
-        for (let i = 0; i < ns.length; i++) {
-          const j = (i + 1) % ns.length
-          slots.push({ fi: i, ti: j, rate: ns[i].outMsgs ?? 0 })
-        }
-      }
-
-      // Each slot gets up to 6 particles (1 per 15 msgs/s)
-      const desired: MsgParticle[] = []
-      for (const { fi, ti, rate } of slots) {
-        const count = Math.min(Math.round(rate / 15), 6)
-        for (let k = 0; k < count; k++) {
-          desired.push({
-            fromIdx: fi,
-            toIdx:   ti,
-            t:       k / count,
-            speed:   0.30 + Math.random() * 0.25,
-            trail:   [],
-          })
-        }
-      }
-
-      // Smoothly converge particle list toward desired (add/remove gradually)
-      if (desired.length > particles.current.length) {
-        particles.current.push(
-          ...desired.slice(particles.current.length).map(p => ({ ...p, t: Math.random(), trail: [] }))
-        )
-      } else if (desired.length < particles.current.length) {
-        particles.current.length = desired.length
-      }
-
-      // ── Connection lines ─────────────────────────────────────────────────
-      for (const rt of rs) {
-        const fi = idToIdx.get(rt.from) ?? -1
-        const ti = idToIdx.get(rt.to)   ?? -1
-        if (fi === -1 || ti === -1) continue
-        const [x1, y1] = positions[fi]
-        const [x2, y2] = positions[ti]
-        const cA = healthRGB(ns[fi].health)
-        const cB = healthRGB(ns[ti].health)
-
-        // Glow
-        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2)
-        ctx.strokeStyle = c(cA, 0.07); ctx.lineWidth = 8
-        ctx.setLineDash([]); ctx.stroke()
-
-        // Inner glow
-        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2)
-        ctx.strokeStyle = c(cA, 0.14); ctx.lineWidth = 2; ctx.stroke()
-
-        // Animated dashes
-        const grad = ctx.createLinearGradient(x1, y1, x2, y2)
-        grad.addColorStop(0, c(cA, 0.55))
-        grad.addColorStop(1, c(cB, 0.55))
-        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2)
-        ctx.strokeStyle = grad; ctx.lineWidth = 1
-        ctx.setLineDash([5, 11]); ctx.lineDashOffset = dashOff.current
-        ctx.stroke(); ctx.setLineDash([])
-      }
-
-      // ── Fallback connections (when no routes) ─────────────────────────────
-      if (rs.length === 0) {
-        for (let i = 0; i < positions.length; i++) {
-          for (let j = i + 1; j < positions.length; j++) {
-            const [x1, y1] = positions[i]; const [x2, y2] = positions[j]
-            const col = healthRGB(ns[i].health)
-            ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2)
-            ctx.strokeStyle = c(col, 0.12); ctx.lineWidth = 1
-            ctx.setLineDash([5, 11]); ctx.lineDashOffset = dashOff.current
-            ctx.stroke(); ctx.setLineDash([])
-          }
-        }
-      }
-
-      // ── Message particles ────────────────────────────────────────────────
-      for (const p of particles.current) {
-        p.t += p.speed * dt
-        if (p.t >= 1) {
-          p.t = 0; p.trail = []
-        }
-        const p0 = positions[p.fromIdx]; const p1 = positions[p.toIdx]
-        if (!p0 || !p1) continue
-
-        const px = p0[0] + (p1[0] - p0[0]) * p.t
-        const py = p0[1] + (p1[1] - p0[1]) * p.t
-
-        p.trail.push([px, py])
-        if (p.trail.length > 16) p.trail.shift()
-
-        const col = healthRGB(ns[p.fromIdx]?.health ?? 'ok')
-
-        // Trail
-        for (let k = 0; k < p.trail.length - 1; k++) {
-          const alpha = (k / p.trail.length) * 0.7
-          ctx.beginPath()
-          ctx.moveTo(p.trail[k][0], p.trail[k][1])
-          ctx.lineTo(p.trail[k+1][0], p.trail[k+1][1])
-          ctx.strokeStyle = c(col, alpha)
-          ctx.lineWidth   = 2.5 * (k / p.trail.length)
-          ctx.stroke()
-        }
-
-        // Glow head
-        const g = ctx.createRadialGradient(px, py, 0, px, py, 8)
-        g.addColorStop(0, c(col, 0.9)); g.addColorStop(1, c(col, 0))
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill()
-        ctx.fillStyle = c(WHITE, 0.95); ctx.beginPath(); ctx.arc(px, py, 2.5, 0, Math.PI * 2); ctx.fill()
-      }
-
-      // ── Node hexagons ────────────────────────────────────────────────────
-      for (let i = 0; i < ns.length; i++) {
-        const node    = ns[i]
-        const pos     = positions[i]
-        if (!pos) continue
-        const [x, y]  = pos
-        const col     = healthRGB(node.health)
-        const isHover = hoveredIdxRef.current === i
-        pulsePhase.current[i] = (pulsePhase.current[i] ?? 0) + dt * 1.6
-        const glow    = isHover ? 1.5 : 0.85 + Math.sin(pulsePhase.current[i]) * 0.15
-
-        draw3DHex(ctx, x, y, HEX_R, col, glow)
-
-        // ── Text inside hex ───────────────────────────────────────────────
-        ctx.textAlign    = 'center'
-        ctx.textBaseline = 'middle'
-
-        // Node name
-        ctx.fillStyle = c(WHITE, 0.92)
-        ctx.font      = '600 11px "JetBrains Mono", ui-monospace, monospace'
-        ctx.fillText(node.name, x, y - 16)
-
-        // Divider
-        ctx.beginPath(); ctx.moveTo(x - 28, y - 5); ctx.lineTo(x + 28, y - 5)
-        ctx.strokeStyle = c(col, 0.2); ctx.lineWidth = 0.7; ctx.stroke()
-
-        // Msgs/s (the KEY real-time number)
-        ctx.fillStyle = c(col, isHover ? 1.0 : 0.85)
-        ctx.font      = '700 12px "JetBrains Mono", ui-monospace, monospace'
-        ctx.fillText(`${fmt(node.inMsgs)}/s`, x, y + 6)
-
-        // Clients
-        ctx.fillStyle = c(WHITE, 0.45)
-        ctx.font      = '9px "JetBrains Mono", ui-monospace, monospace'
-        ctx.fillText(`${fmt(node.clients)} cli`, x, y + 20)
-
-        // Role dot
-        if (node.role === 'leader') {
-          ctx.fillStyle = c(col, 0.9)
-          ctx.font      = '8px "JetBrains Mono", ui-monospace, monospace'
-          ctx.fillText('◆ LEADER', x, y - 28)
-        }
-
-        ctx.textBaseline = 'alphabetic'
-      }
-
-      // Empty state
-      if (ns.length === 0) {
-        ctx.textAlign = 'center'
-        ctx.fillStyle = c(CYAN, 0.25)
-        ctx.font      = '12px "JetBrains Mono", ui-monospace, monospace'
-        ctx.fillText('No nodes connected', W / 2, H / 2)
-      }
-
-      ctx.restore()
-      raf = requestAnimationFrame(tick)
+    if (meshRef.current) {
+      const s = hovered ? 1.12 : 1
+      meshRef.current.scale.lerp(SCRATCH_SCALE.set(s, s, s), 0.16)
     }
-
-    raf = requestAnimationFrame(tick)
-    return () => {
-      cancelAnimationFrame(raf)
-      observer.disconnect()
-      canvas.removeEventListener('mousemove',  handleMouseMove)
-      canvas.removeEventListener('mouseleave', handleMouseLeave)
-    }
-  }, [handleMouseMove, handleMouseLeave])
-
-  const hoveredNode = hoveredIdx !== null ? nodes[hoveredIdx] : null
+  })
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <canvas
-        ref={canvasRef}
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', background: BG, cursor: hoveredIdx !== null ? 'crosshair' : 'default' }}
-      />
+    <group position={[position.x, 0, position.z]}>
+      {/* Static, subtle ground halo — depth without the glowy pulse */}
+      <sprite position={[0, NODE_Y, 0]} scale={[4.2, 4.2, 4.2]}>
+        <spriteMaterial
+          map={glowTexture()} color={col} transparent depthWrite={false}
+          blending={THREE.AdditiveBlending} opacity={0.16 + act * 0.22}
+        />
+      </sprite>
 
-      {/* ── Hover tooltip ─────────────────────────────────────────────────── */}
-      {hoveredNode && (
-        <div
-          style={{
-            position:    'absolute',
-            left:        tipPos.x + 18,
-            top:         tipPos.y - 10,
-            pointerEvents: 'none',
-            zIndex:      10,
-            background:  'rgba(4,9,15,0.95)',
-            border:      `1px solid rgba(6,182,212,0.35)`,
-            borderRadius: 6,
-            padding:     '10px 14px',
-            minWidth:    160,
-            boxShadow:   '0 0 20px rgba(6,182,212,0.15)',
-            fontFamily:  '"JetBrains Mono", ui-monospace, monospace',
-            fontSize:    10,
-            lineHeight:  '1.9',
-            color:       'rgba(255,255,255,0.85)',
-          }}
-        >
-          <div style={{ color: '#22d3ee', fontWeight: 700, fontSize: 12, marginBottom: 6 }}>
-            {hoveredNode.name}
-            {hoveredNode.role === 'leader' && (
-              <span style={{ marginLeft: 6, fontSize: 9, color: 'rgba(6,182,212,0.7)' }}>◆ LEADER</span>
-            )}
-          </div>
-          <Row label="HOST"    value={`${hoveredNode.host}:${hoveredNode.port}`} />
-          <Row label="VERSION" value={hoveredNode.version || '—'} />
-          <Row label="CLIENTS" value={fmt(hoveredNode.clients)} />
-          <Row label="SUBS"    value={fmt(hoveredNode.subscriptions)} />
-          <div style={{ borderTop: '1px solid rgba(6,182,212,0.15)', margin: '6px 0' }} />
-          <Row label="↑ IN"   value={`${fmt(hoveredNode.inMsgs)}/s`}   color="#22d3ee" />
-          <Row label="↓ OUT"  value={`${fmt(hoveredNode.outMsgs)}/s`}  color="#67e8f9" />
-          <Row label="↑ BYTES" value={`${fmt(hoveredNode.inBytes)}/s`} color="rgba(255,255,255,0.5)" />
-          <Row label="↓ BYTES" value={`${fmt(hoveredNode.outBytes)}/s`} color="rgba(255,255,255,0.5)" />
-          <div style={{ borderTop: '1px solid rgba(6,182,212,0.15)', margin: '6px 0' }} />
-          <Row label="UPTIME"  value={hoveredNode.uptime || '—'} />
-          <Row
-            label="HEALTH"
-            value={hoveredNode.health.toUpperCase()}
-            color={hoveredNode.health === 'ok' ? '#22d3ee' : hoveredNode.health === 'degraded' ? '#f59e0b' : '#ef4444'}
-          />
-          {hoveredNode.jetstream && (
-            <div style={{ marginTop: 6, color: '#a78bfa', fontSize: 9 }}>◈ JETSTREAM ENABLED</div>
-          )}
-        </div>
+      {/* Glass hexagonal prism */}
+      <mesh
+        ref={meshRef}
+        position={[0, NODE_Y, 0]}
+        rotation={[0, Math.PI / 6, 0]}
+        onPointerOver={(e) => { e.stopPropagation(); onOver() }}
+        onPointerOut={(e) => { e.stopPropagation(); onOut() }}
+      >
+        <cylinderGeometry args={[HEX_R, HEX_R, HEX_H, 6]} />
+        <meshStandardMaterial
+          ref={matRef}
+          color="#0a1a22" emissive={col} emissiveIntensity={1}
+          metalness={0.55} roughness={0.25} transparent opacity={0.82}
+        />
+        <Edges threshold={15} color={hpx} lineWidth={1.6} transparent opacity={0.92} />
+      </mesh>
+
+      {/* Leader crown */}
+      {node.role === 'leader' && (
+        <mesh position={[0, HEX_H + 0.14, 0]} rotation={[0, Math.PI / 6, 0]}>
+          <cylinderGeometry args={[HEX_R * 0.45, HEX_R * 0.45, 0.05, 6]} />
+          <meshStandardMaterial color={VIOLET_HEX} emissive={VIOLET_HEX} emissiveIntensity={1.6} toneMapped={false} />
+        </mesh>
       )}
+
+      {/* Always-on data card: name · health · live in/out (data-first) */}
+      <Html position={[0, HEX_H + 1.0, 0]} center style={{ pointerEvents: 'none' }} zIndexRange={[15, 0]}>
+        <div style={{
+          pointerEvents: 'none', userSelect: 'none', whiteSpace: 'nowrap', textAlign: 'center',
+          fontFamily: '"JetBrains Mono", ui-monospace, monospace', transform: 'translateY(-4px)',
+          display: 'inline-block', padding: '3px 9px', borderRadius: 9,
+          background: 'rgba(6,7,15,0.62)', border: `1px solid ${hpx}38`, backdropFilter: 'blur(4px)',
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#eaf7ff' }}>
+            {node.name}
+            {node.role === 'leader' && <span style={{ color: VIOLET_HEX, marginLeft: 5 }}>◆</span>}
+          </div>
+          <div style={{ fontSize: 9.5, fontWeight: 700, color: hpx, letterSpacing: '0.06em', marginTop: 1 }}>
+            {node.health.toUpperCase()}
+          </div>
+          <div style={{ fontSize: 10, marginTop: 2, color: 'rgba(255,255,255,0.6)', fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ color: '#22d3ee' }}>↓</span>{full(node.inMsgs)}
+            <span style={{ opacity: 0.4, margin: '0 5px' }}>·</span>
+            <span style={{ color: '#67e8f9' }}>↑</span>{full(node.outMsgs)}
+          </div>
+        </div>
+      </Html>
+    </group>
+  )
+}
+
+// ── Hover tooltip ────────────────────────────────────────────────────────────────
+
+function NodeTooltip({ node, position }: { node: NodeInfo; position: THREE.Vector3 }) {
+  return (
+    <Html position={[position.x, NODE_Y + HEX_H + 0.2, position.z]} style={{ pointerEvents: 'none' }} zIndexRange={[30, 20]}>
+      <div style={{
+        pointerEvents: 'none', transform: 'translate(16px, -50%)', minWidth: 212,
+        background: 'rgba(6,7,15,0.94)', border: `1px solid ${healthHex(node.health)}55`,
+        borderRadius: 8, padding: '10px 13px', boxShadow: `0 0 24px ${healthHex(node.health)}22`,
+        fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 10, lineHeight: '1.85',
+        color: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)',
+      }}>
+        <div style={{ color: '#67e8f9', fontWeight: 700, fontSize: 12, marginBottom: 6 }}>
+          {node.name}
+          {node.role === 'leader' && <span style={{ marginLeft: 6, fontSize: 9, color: VIOLET_HEX }}>◆ LEADER</span>}
+        </div>
+        <TipRow label="HOST"    value={`${node.host}:${node.port}`} />
+        <TipRow label="VERSION" value={node.version || '—'} />
+        <TipRow label="JETSTREAM" value={node.jetstream ? 'ENABLED' : 'OFF'}
+          color={node.jetstream ? VIOLET_HEX : undefined} />
+        <div style={{ borderTop: '1px solid rgba(103,232,249,0.15)', margin: '6px 0' }} />
+        <TipRow label="CLIENTS" value={full(node.clients)} />
+        <TipRow label="SUBS"    value={full(node.subscriptions)} />
+        <TipRow label="SLOW CONSUMERS" value={full(node.slowClients)}
+          color={node.slowClients > 0 ? AMBER_HEX : undefined} />
+        <div style={{ borderTop: '1px solid rgba(103,232,249,0.15)', margin: '6px 0' }} />
+        <TipRow label="↑ MSGS IN"  value={full(node.inMsgs)}  color="#22d3ee" />
+        <TipRow label="↓ MSGS OUT" value={full(node.outMsgs)} color="#67e8f9" />
+        <TipRow label="↑ DATA IN"  value={bytes(node.inBytes)}  color="#22d3ee" />
+        <TipRow label="↓ DATA OUT" value={bytes(node.outBytes)} color="#67e8f9" />
+        <div style={{ borderTop: '1px solid rgba(103,232,249,0.15)', margin: '6px 0' }} />
+        <TipRow label="UPTIME"  value={node.uptime || '—'} />
+        <TipRow
+          label="HEALTH" value={node.health.toUpperCase()}
+          color={node.health === 'ok' ? '#22d3ee' : node.health === 'degraded' ? AMBER_HEX : RED_HEX}
+        />
+      </div>
+    </Html>
+  )
+}
+
+function TipRow({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14 }}>
+      <span style={{ color: 'rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>{label}</span>
+      <span style={{ color: color ?? 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{value}</span>
     </div>
   )
 }
 
-function Row({ label, value, color = 'rgba(255,255,255,0.7)' }: { label: string; value: string; color?: string }) {
+// ── Connection wires ─────────────────────────────────────────────────────────────
+
+interface Edge { ai: number; bi: number; weight: number }
+
+/** Build the logical edge graph used by both the wires and the particle flow. */
+function buildEdges(nodes: NodeInfo[], routes: RouteInfo[]): Edge[] {
+  const idToIdx = new Map(nodes.map((n, i) => [n.id, i]))
+  const out: Edge[] = []
+  for (const r of routes) {
+    const ai = idToIdx.get(r.from) ?? -1
+    const bi = idToIdx.get(r.to) ?? -1
+    if (ai === -1 || bi === -1 || ai === bi) continue
+    const w = (nodes[ai].outMsgs ?? 0) + (nodes[bi].outMsgs ?? 0) + 1
+    out.push({ ai, bi, weight: w })
+  }
+  // Fallback: ring mesh when no routes are reported but we have ≥2 nodes.
+  if (out.length === 0 && nodes.length >= 2) {
+    for (let i = 0; i < nodes.length; i++) {
+      const j = (i + 1) % nodes.length
+      out.push({ ai: i, bi: j, weight: (nodes[i].outMsgs ?? 0) + 1 })
+    }
+  }
+  return out
+}
+
+/** Arc control point above the midpoint of an edge. */
+function arcMid(a: THREE.Vector3, b: THREE.Vector3): THREE.Vector3 {
+  const m = a.clone().lerp(b, 0.5)
+  m.y += a.distanceTo(b) * 0.18 + 0.6
+  return m
+}
+
+function EdgeWires({ nodes, routes, positions }: { nodes: NodeInfo[]; routes: RouteInfo[]; positions: THREE.Vector3[] }) {
+  const edges = useMemo(() => buildEdges(nodes, routes), [nodes, routes])
+
+  // Each wire's thickness + brightness encodes its REAL relative route load
+  // (log-scaled against the busiest link), so heavy routes are obvious at a glance.
+  const wires = useMemo(() => {
+    const maxW = edges.reduce((m, e) => Math.max(m, e.weight), 1)
+    const denom = Math.log10(1 + maxW) || 1
+    return edges.map(({ ai, bi, weight }) => {
+      const a = new THREE.Vector3(positions[ai].x, NODE_Y, positions[ai].z)
+      const b = new THREE.Vector3(positions[bi].x, NODE_Y, positions[bi].z)
+      const pts = new THREE.QuadraticBezierCurve3(a, arcMid(a, b), b).getPoints(28)
+      const load = Math.min(1, Math.log10(1 + weight) / denom)
+      const color = new THREE.Color(CYAN_HEX).lerp(new THREE.Color('#eaffff'), load * 0.6)
+      return { pts, width: 0.7 + load * 2.3, opacity: 0.12 + load * 0.42, color }
+    })
+  }, [edges, positions])
+
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
-      <span style={{ color: 'rgba(255,255,255,0.3)' }}>{label}</span>
-      <span style={{ color }}>{value}</span>
+    <>
+      {wires.map(({ pts, width, opacity, color }, i) => (
+        <Line key={i} points={pts} color={color} lineWidth={width} transparent opacity={opacity} />
+      ))}
+    </>
+  )
+}
+
+// ── Particle flow ────────────────────────────────────────────────────────────────
+
+export interface FlowPulse { subject: string; size: number }
+
+interface Particle {
+  a: THREE.Vector3
+  mid: THREE.Vector3
+  b: THREE.Vector3
+  t: number
+  speed: number
+  color: THREE.Color
+  size: number
+  subject: string
+}
+
+const MAX_PARTICLES = 220
+const MAX_LABELS = 8         // one tag per DISTINCT subject (deduped) — plenty
+
+function anchor(p: THREE.Vector3): THREE.Vector3 {
+  return new THREE.Vector3(p.x, NODE_Y, p.z)
+}
+
+function Packets({
+  nodes, routes, positions, pulseQueue,
+}: {
+  nodes: NodeInfo[]
+  routes: RouteInfo[]
+  positions: THREE.Vector3[]
+  pulseQueue: MutableRefObject<FlowPulse[]>
+}) {
+  const nodesRef = useRef(nodes);                 nodesRef.current = nodes
+  const routesRef = useRef(routes);               routesRef.current = routes
+  const posRef = useRef(positions);               posRef.current = positions
+
+  const bbRefs  = useRef<(THREE.Object3D | null)[]>([])  // subject-tag billboards
+  const txtRefs = useRef<any[]>([])                       // troika Text instances
+  const shown   = useRef<string[]>(new Array(MAX_LABELS).fill(''))
+
+  const store = useRef({
+    parts: [] as Particle[],
+    pos:  new Float32Array(MAX_PARTICLES * 3),
+    col:  new Float32Array(MAX_PARTICLES * 3),
+    size: new Float32Array(MAX_PARTICLES),
+    scratch: new THREE.Vector3(),
+    bestLabels: new Map<string, Particle>(),   // reused each frame (subject → packet)
+  })
+
+  const geom = useMemo(() => {
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(store.current.pos, 3))
+    g.setAttribute('aColor',   new THREE.BufferAttribute(store.current.col, 3))
+    g.setAttribute('size',     new THREE.BufferAttribute(store.current.size, 1))
+    g.setDrawRange(0, 0)
+    return g
+  }, [])
+
+  // Crisp solid SQUARE "data packets" — no additive glow. A subtle darker frame
+  // gives each one a chip-like edge so they read as discrete packets, not blobs.
+  const mat = useMemo(() => new THREE.ShaderMaterial({
+    uniforms: { uPix: { value: Math.min(window.devicePixelRatio || 1, 2) } },
+    vertexShader: `
+      attribute vec3 aColor;
+      attribute float size;
+      varying vec3 vColor;
+      uniform float uPix;
+      void main() {
+        vColor = aColor;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = size * uPix * (110.0 / max(-mv.z, 0.001));
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      varying vec3 vColor;
+      void main() {
+        vec2 d = abs(gl_PointCoord - 0.5);
+        float edge = max(d.x, d.y);          // 0 center .. 0.5 corner
+        float frame = step(0.40, edge);      // outer chip frame
+        vec3 col = mix(vColor, vColor * 0.38, frame);
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+    transparent: false, depthWrite: true, depthTest: true, blending: THREE.NormalBlending,
+  }), [])
+
+  useEffect(() => () => { geom.dispose(); mat.dispose() }, [geom, mat])
+
+  // ── Particle factories ───────────────────────────────────────────────────
+  const edgeParticle = (e: Edge, color: THREE.Color, size: number, speed: number, subject: string): Particle => {
+    const ns = nodesRef.current, ps = posRef.current
+    const oa = (ns[e.ai]?.outMsgs ?? 0) + 1
+    const ob = (ns[e.bi]?.outMsgs ?? 0) + 1
+    const forward = Math.random() < oa / (oa + ob)
+    const fromI = forward ? e.ai : e.bi
+    const toI   = forward ? e.bi : e.ai
+    const a = anchor(ps[fromI]); const b = anchor(ps[toI])
+    return { a, mid: arcMid(a, b), b, t: 0, speed, color, size, subject }
+  }
+
+  const radialParticle = (center: THREE.Vector3, color: THREE.Color, size: number, speed: number, outward: boolean, subject: string): Particle => {
+    const ang = Math.random() * Math.PI * 2
+    const R = 4.6
+    const rim = new THREE.Vector3(center.x + Math.cos(ang) * R, NODE_Y, center.z + Math.sin(ang) * R)
+    const a = outward ? center.clone() : rim
+    const b = outward ? rim : center.clone()
+    const mid = a.clone().lerp(b, 0.5); mid.y += 1.1
+    return { a, mid, b, t: 0, speed, color, size, subject }
+  }
+
+  const hideAllLabels = () => {
+    for (let i = 0; i < MAX_LABELS; i++) { const bb = bbRefs.current[i]; if (bb) bb.visible = false }
+  }
+
+  useFrame((_, dtRaw) => {
+    const dt = Math.min(dtRaw, 0.05)
+    const st = store.current
+    const ns = nodesRef.current
+    const ps = posRef.current
+    if (ps.length === 0) { geom.setDrawRange(0, 0); hideAllLabels(); return }
+
+    const edges = buildEdges(ns, routesRef.current)
+    const single = ps.length === 1
+    const center = single ? anchor(ps[0]) : null
+
+    // advance + cull
+    const alive: Particle[] = []
+    for (const p of st.parts) { p.t += p.speed * dt; if (p.t < 1) alive.push(p) }
+    st.parts = alive
+
+    // Every packet is a REAL message sampled from the (filtered) ">" feed — one
+    // crisp square per message. App subjects = cyan; internal ($…,_…) = amber
+    // (only present when the "All traffic" toggle is on), so they're distinct.
+    const q = pulseQueue.current
+    while (q.length && st.parts.length < MAX_PARTICLES) {
+      const ev = q.shift()!
+      const size = 3.2 + Math.min(2.2, Math.log10(1 + ev.size) * 0.9)
+      const isInt = /^[$_]/.test(ev.subject)
+      const color = new THREE.Color(isInt ? AMBER_HEX : CYAN_HEX).lerp(new THREE.Color('#ffffff'), 0.18)
+      if (single && center) {
+        st.parts.push(radialParticle(center, color, size, 0.7, true, ev.subject))
+      } else if (edges.length) {
+        // stable subject→edge mapping so a subject always travels the same lane
+        let h = 0
+        for (let i = 0; i < ev.subject.length; i++) h = (h * 31 + ev.subject.charCodeAt(i)) | 0
+        const e = edges[Math.abs(h) % edges.length]
+        st.parts.push(edgeParticle(e, color, size, 0.62, ev.subject))
+      }
+    }
+
+    // write one crisp square per packet
+    let w = 0
+    const sc = st.scratch
+    for (const p of st.parts) {
+      const tt = p.t, u = 1 - tt
+      sc.set(
+        u * u * p.a.x + 2 * u * tt * p.mid.x + tt * tt * p.b.x,
+        u * u * p.a.y + 2 * u * tt * p.mid.y + tt * tt * p.b.y,
+        u * u * p.a.z + 2 * u * tt * p.mid.z + tt * tt * p.b.z,
+      )
+      const i3 = w * 3
+      st.pos[i3] = sc.x; st.pos[i3 + 1] = sc.y; st.pos[i3 + 2] = sc.z
+      st.col[i3] = p.color.r; st.col[i3 + 1] = p.color.g; st.col[i3 + 2] = p.color.b
+      st.size[w] = p.size
+      w++
+    }
+    geom.setDrawRange(0, w)
+    ;(geom.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true
+    ;(geom.getAttribute('aColor') as THREE.BufferAttribute).needsUpdate = true
+    ;(geom.getAttribute('size') as THREE.BufferAttribute).needsUpdate = true
+
+    // Subject tags — at most ONE tag per DISTINCT subject, riding that subject's
+    // most-visible mid-flight packet. This kills the pile-up of overlapping
+    // labels at node centers when many same-subject packets spawn together:
+    // 3 app subjects → 3 clean tags, not 16 stacked ones.
+    const best = st.bestLabels
+    best.clear()
+    for (const p of st.parts) {
+      if (p.t < 0.2 || p.t > 0.88) continue                 // skip spawn/arrival clumps
+      const cur = best.get(p.subject)                        // prefer t closest to mid-arc
+      if (!cur || Math.abs(p.t - 0.5) < Math.abs(cur.t - 0.5)) best.set(p.subject, p)
+    }
+    let li = 0
+    for (const p of best.values()) {
+      if (li >= MAX_LABELS) break
+      const bb = bbRefs.current[li]
+      if (!bb) { li++; continue }
+      const tt = p.t, u = 1 - tt
+      bb.position.set(
+        u * u * p.a.x + 2 * u * tt * p.mid.x + tt * tt * p.b.x,
+        (u * u * p.a.y + 2 * u * tt * p.mid.y + tt * tt * p.b.y) + 0.55,
+        u * u * p.a.z + 2 * u * tt * p.mid.z + tt * tt * p.b.z,
+      )
+      bb.visible = true
+      if (shown.current[li] !== p.subject) {       // only re-sync SDF text on change
+        const t = txtRefs.current[li]
+        if (t) { t.text = p.subject; t.sync?.() }
+        shown.current[li] = p.subject
+      }
+      li++
+    }
+    for (; li < MAX_LABELS; li++) { const bb = bbRefs.current[li]; if (bb) bb.visible = false }
+  })
+
+  return (
+    <>
+      <points geometry={geom} material={mat} frustumCulled={false} />
+      {Array.from({ length: MAX_LABELS }).map((_, i) => (
+        <Billboard key={i} ref={(el) => { bbRefs.current[i] = el }} visible={false}>
+          <Text
+            ref={(el) => { txtRefs.current[i] = el }}
+            fontSize={0.26}
+            color="#dff6ff"
+            anchorX="center"
+            anchorY="bottom"
+            outlineWidth={0.018}
+            outlineColor="#03050b"
+            maxWidth={12}
+          >
+            {''}
+          </Text>
+        </Billboard>
+      ))}
+    </>
+  )
+}
+
+// ── Scene ────────────────────────────────────────────────────────────────────────
+
+function SceneContent({ nodes, routes, pulseQueue }: {
+  nodes: NodeInfo[]
+  routes: RouteInfo[]
+  pulseQueue: MutableRefObject<FlowPulse[]>
+}) {
+  const positions = useMemo(() => layout(nodes.length), [nodes.length])
+  const [hovered, setHovered] = useState<number | null>(null)
+
+  // keep hovered index valid if node count changes
+  useEffect(() => { if (hovered !== null && hovered >= nodes.length) setHovered(null) }, [nodes.length, hovered])
+
+  return (
+    <>
+      <color attach="background" args={[BG]} />
+      <fog attach="fog" args={[BG, 30, 130]} />
+
+      <ambientLight intensity={0.5} />
+      <pointLight position={[0, 16, 8]}  intensity={0.8} color={CYAN_HEX}   distance={70} />
+      <pointLight position={[-12, 9, -12]} intensity={0.4} color={VIOLET_HEX} distance={70} />
+
+      {/* Matte floor — grounds the scene without the costly mirror render-target
+          (MeshReflectorMaterial's extra pass was the scene's biggest GPU cost). */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.08, 0]}>
+        <planeGeometry args={[120, 120]} />
+        <meshStandardMaterial color="#05060d" metalness={0.3} roughness={0.85} />
+      </mesh>
+
+      <Grid
+        position={[0, -0.02, 0]}
+        args={[80, 80]}
+        cellSize={1} cellThickness={0.5} cellColor="#0d343d"
+        sectionSize={5} sectionThickness={1} sectionColor="#155e6b"
+        fadeDistance={46} fadeStrength={1.6} infiniteGrid
+        side={THREE.DoubleSide}
+      />
+
+      <EdgeWires nodes={nodes} routes={routes} positions={positions} />
+      <Packets nodes={nodes} routes={routes} positions={positions} pulseQueue={pulseQueue} />
+
+      {nodes.map((n, i) => (
+        <HexNode
+          key={n.id}
+          node={n}
+          position={positions[i]}
+          hovered={hovered === i}
+          onOver={() => setHovered(i)}
+          onOut={() => setHovered(h => (h === i ? null : h))}
+        />
+      ))}
+
+      {hovered !== null && nodes[hovered] && positions[hovered] && (
+        <NodeTooltip node={nodes[hovered]} position={positions[hovered]} />
+      )}
+
+      {/* Gimbal-free trackball — spin a full 360° around ANY axis and return to
+          the same orientation. No top/bottom poles or walls (unlike OrbitControls).
+          Left-drag = tumble · scroll = zoom · right-drag = pan. */}
+      <TrackballControls
+        makeDefault
+        rotateSpeed={3.4}
+        zoomSpeed={1.3}
+        panSpeed={0.8}
+        staticMoving={false}
+        dynamicDampingFactor={0.12}
+        minDistance={1.5}
+        maxDistance={120}
+      />
+
+      {/* Restrained finish — only the brightest cores bloom, so labels stay crisp. */}
+      <EffectComposer multisampling={2}>
+        <Bloom
+          intensity={0.28}
+          luminanceThreshold={0.72}
+          luminanceSmoothing={0.9}
+          mipmapBlur
+          radius={0.45}
+        />
+        <Vignette eskil={false} offset={0.3} darkness={0.72} />
+      </EffectComposer>
+    </>
+  )
+}
+
+// ── Public component ─────────────────────────────────────────────────────────────
+
+export function TopologyScene({ clusterId, nodes, routes, externalOnly }: TopologySceneProps) {
+  const pulseQueue = useRef<FlowPulse[]>([])
+
+  // Start the backend ">" flow feed and collect real message pulses while open.
+  // includeInternal mirrors the cluster-bar toggle (external-only by default).
+  // Re-runs when the toggle flips → backend restarts the sub with the new filter.
+  useEffect(() => {
+    if (!clusterId) return
+    ws.send('flow.start', { clusterId, includeInternal: !externalOnly })
+    const off = ws.on<{ clusterId: string; subject: string; size: number; internal?: boolean }>('topology.flow', ({ data }) => {
+      if (data.clusterId !== clusterId) return
+      // When external-only, drop internal NATS/JetStream plumbing ($…, _…).
+      if (externalOnly && (data.internal || /^[$_]/.test(data.subject))) return
+      pulseQueue.current.push({ subject: data.subject, size: data.size })
+      if (pulseQueue.current.length > 240) pulseQueue.current.shift()
+    })
+    return () => { off(); ws.send('flow.stop', { clusterId }) }
+  }, [clusterId, externalOnly])
+
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <Canvas
+        dpr={[1, 2]}
+        gl={{ antialias: true, powerPreference: 'high-performance' }}
+        camera={{ position: [0, 9, 15], fov: 45 }}
+        style={{ background: BG, display: 'block', width: '100%', height: '100%' }}
+      >
+        <SceneContent nodes={nodes} routes={routes} pulseQueue={pulseQueue} />
+      </Canvas>
+
+      {nodes.length === 0 && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          pointerEvents: 'none', fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+          fontSize: 12, color: 'rgba(103,232,249,0.4)',
+        }}>
+          No nodes connected
+        </div>
+      )}
     </div>
   )
 }

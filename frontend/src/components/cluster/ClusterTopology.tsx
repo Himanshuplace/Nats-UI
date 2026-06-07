@@ -4,7 +4,7 @@
  * Uses Three.js via @react-three/fiber (lazy-loaded — ~600KB only fetched
  * when this view opens, keeping the initial bundle small).
  */
-import { Suspense, lazy, useEffect } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Server } from 'lucide-react'
 import { useDataStore, useUIStore } from '@/store'
@@ -76,10 +76,16 @@ function ClusterView({ cluster }: { cluster: ClusterInfo }) {
   const last = pts[pts.length - 1]
   const nodes = cluster.nodes ?? []
 
+  // External-only (default) hides internal NATS/JetStream traffic ($…, _…) so
+  // the topology shows only messages real publishers/subscribers send & receive.
+  const [externalOnly, setExternalOnly] = useState(true)
+
   const totalInMsgs  = last?.inMsgs  ?? nodes.reduce((s, n) => s + n.inMsgs, 0)
   const totalOutMsgs = last?.outMsgs ?? nodes.reduce((s, n) => s + n.outMsgs, 0)
   const totalClients = nodes.reduce((s, n) => s + n.clients, 0)
-  const totalMsgs    = totalInMsgs + totalOutMsgs
+  // Real per-second flow rate (0 until the first live sample) — drives the
+  // ambient particle density honestly so an idle server stays calm.
+  const flowRate     = last ? Math.max(0, last.inMsgs + last.outMsgs) : 0
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -108,8 +114,27 @@ function ClusterView({ cluster }: { cluster: ClusterInfo }) {
         <MetaChip label="in/s"    value={formatNumber(totalInMsgs)} color="var(--accent-primary)" />
         <MetaChip label="out/s"   value={formatNumber(totalOutMsgs)} color="#06B6D4" />
 
-        <div className="ml-auto text-2xs font-mono text-text-muted">
-          orbit · scroll to zoom
+        <div className="ml-auto flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setExternalOnly(v => !v)}
+            title={externalOnly
+              ? 'Showing only external/app messages — click to ALSO show internal NATS ($…, _…) traffic'
+              : 'Showing ALL traffic incl. internal NATS — click to show external/app messages only'}
+            className="flex items-center gap-1.5 px-2 py-1 rounded text-2xs font-mono border transition-colors"
+            style={{
+              borderColor: 'var(--surface-border)',
+              color: externalOnly ? 'var(--accent-primary)' : '#f59e0b',
+              background: 'rgba(255,255,255,0.02)',
+            }}
+          >
+            <span style={{
+              width: 6, height: 6, borderRadius: 9999, display: 'inline-block',
+              background: externalOnly ? 'var(--accent-primary)' : '#f59e0b',
+            }} />
+            {externalOnly ? 'External only' : 'All traffic'}
+          </button>
+          <span className="text-2xs font-mono text-text-muted">drag to spin · scroll to zoom · right-drag pan</span>
         </div>
       </div>
 
@@ -124,9 +149,11 @@ function ClusterView({ cluster }: { cluster: ClusterInfo }) {
           </div>
         }>
           <TopologyScene
+            clusterId={cluster.id}
             nodes={nodes}
             routes={cluster.routes ?? []}
-            totalThroughput={totalMsgs}
+            totalThroughput={flowRate}
+            externalOnly={externalOnly}
           />
         </Suspense>
       </div>

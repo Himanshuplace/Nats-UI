@@ -122,8 +122,8 @@ services:
   # Edge cluster + leaf node that attach to the main cluster to demonstrate
   # gateway (supercluster) and leaf-node topology in the UI. Off by default;
   # enable with:  docker compose --profile federation up -d
-  # nats1 already exposes the inert gateway (:7222) and leafnode (:7422)
-  # listeners; these containers dial into them.
+  # nats1 exposes the gateway (:7222) listener and nats2 the leafnode (:7422)
+  # listener; these containers dial into them.
   nats-edge:
     image: nats:2.10-alpine
     container_name: nats-edge

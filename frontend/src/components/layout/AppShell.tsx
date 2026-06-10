@@ -62,6 +62,7 @@ const HealthPanel       = lazy(() => import('@/components/health/HealthPanel').t
 const ServerLatency     = lazy(() => import('@/components/latency/ServerLatency').then(m => ({ default: m.ServerLatency })))
 const StreamBackupView  = lazy(() => import('@/components/backup/StreamBackupRestore').then(m => ({ default: m.StreamBackupRestore })))
 const AccountsView      = lazy(() => import('@/components/accounts/AccountsView').then(m => ({ default: m.AccountsView })))
+const DeadLetterQueue   = lazy(() => import('@/components/dlq/DeadLetterQueue').then(m => ({ default: m.DeadLetterQueue })))
 
 function ViewFallback() {
   return (
@@ -350,7 +351,7 @@ export function AppShell() {
       case 'latency':   return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><ServerLatency /></ViewErrorBoundary></Suspense>
       case 'backup':    return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><StreamBackupView /></ViewErrorBoundary></Suspense>
       case 'accounts':  return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><AccountsView /></ViewErrorBoundary></Suspense>
-      case 'dlq':       return <DLQPlaceholder />
+      case 'dlq':       return <Suspense fallback={<ViewFallback />}><ViewErrorBoundary><DeadLetterQueue /></ViewErrorBoundary></Suspense>
       case 'settings':  return <SettingsView />
       default:          return <OverviewView />
     }
@@ -373,14 +374,3 @@ export function AppShell() {
   )
 }
 
-function DLQPlaceholder() {
-  return (
-    <div className="flex-1 flex items-center justify-center">
-      <div className="text-center font-mono animate-fade-in">
-        <p className="text-4xl mb-3">🪦</p>
-        <p className="text-sm font-mono text-text-secondary">Dead Letter Queue Analyzer</p>
-        <p className="text-xs font-mono text-text-muted mt-1">Coming soon — poison message inspection & redelivery analysis</p>
-      </div>
-    </div>
-  )
-}

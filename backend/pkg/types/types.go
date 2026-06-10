@@ -52,7 +52,7 @@ type ClusterInfo struct {
 // remote cluster — the building block of a NATS supercluster. Direction is
 // "outbound" (we dial them) or "inbound" (they dialed us).
 type GatewayConn struct {
-	ServerID       string  `json:"serverId"`      // local server holding this gateway conn
+	ServerID       string  `json:"serverId"` // local server holding this gateway conn
 	ServerName     string  `json:"serverName"`
 	RemoteCluster  string  `json:"remoteCluster"` // gateway/cluster name on the other side
 	Direction      string  `json:"direction"`     // outbound | inbound
@@ -67,9 +67,9 @@ type GatewayConn struct {
 // LeafNodeConn is one leaf-node connection attached to a server in this cluster
 // (an edge/spoke NATS server or client extending the hub).
 type LeafNodeConn struct {
-	ServerID      string  `json:"serverId"`   // hub server the leaf is attached to
+	ServerID      string  `json:"serverId"` // hub server the leaf is attached to
 	ServerName    string  `json:"serverName"`
-	Name          string  `json:"name"`       // remote leaf server name, when reported
+	Name          string  `json:"name"` // remote leaf server name, when reported
 	Account       string  `json:"account"`
 	IP            string  `json:"ip,omitempty"`
 	Port          int     `json:"port,omitempty"`
@@ -82,30 +82,30 @@ type LeafNodeConn struct {
 }
 
 type NodeInfo struct {
-	ID          string        `json:"id"`
-	Name        string        `json:"name"`
-	Host        string        `json:"host"`
-	Port        int           `json:"port"`
-	Role        string        `json:"role"` // leader, follower, candidate
-	Clients     int64         `json:"clients"`
-	Subscriptions int64       `json:"subscriptions"`
-	InMsgs      int64         `json:"inMsgs"`
-	OutMsgs     int64         `json:"outMsgs"`
-	InBytes     int64         `json:"inBytes"`
-	OutBytes    int64         `json:"outBytes"`
-	SlowClients int64         `json:"slowClients"`
-	Routes      int           `json:"routes"`
-	Uptime      string        `json:"uptime"`
-	Version     string        `json:"version"`
-	Health      ClusterHealth `json:"health"`
-	JetStream   bool          `json:"jetstream"`
+	ID            string        `json:"id"`
+	Name          string        `json:"name"`
+	Host          string        `json:"host"`
+	Port          int           `json:"port"`
+	Role          string        `json:"role"` // leader, follower, candidate
+	Clients       int64         `json:"clients"`
+	Subscriptions int64         `json:"subscriptions"`
+	InMsgs        int64         `json:"inMsgs"`
+	OutMsgs       int64         `json:"outMsgs"`
+	InBytes       int64         `json:"inBytes"`
+	OutBytes      int64         `json:"outBytes"`
+	SlowClients   int64         `json:"slowClients"`
+	Routes        int           `json:"routes"`
+	Uptime        string        `json:"uptime"`
+	Version       string        `json:"version"`
+	Health        ClusterHealth `json:"health"`
+	JetStream     bool          `json:"jetstream"`
 }
 
 type RouteInfo struct {
-	From       string  `json:"from"`
-	To         string  `json:"to"`
-	LatencyMs  float64 `json:"latencyMs"`
-	Healthy    bool    `json:"healthy"`
+	From      string  `json:"from"`
+	To        string  `json:"to"`
+	LatencyMs float64 `json:"latencyMs"`
+	Healthy   bool    `json:"healthy"`
 }
 
 // ── JetStream streams ─────────────────────────────────────────────────────────
@@ -128,11 +128,11 @@ const (
 	DiscardOld DiscardPolicy = "old"
 	DiscardNew DiscardPolicy = "new"
 
-	DeliverAll       DeliverPolicy = "all"
-	DeliverLast      DeliverPolicy = "last"
-	DeliverNew       DeliverPolicy = "new"
-	DeliverBySeq     DeliverPolicy = "by_start_sequence"
-	DeliverByTime    DeliverPolicy = "by_start_time"
+	DeliverAll    DeliverPolicy = "all"
+	DeliverLast   DeliverPolicy = "last"
+	DeliverNew    DeliverPolicy = "new"
+	DeliverBySeq  DeliverPolicy = "by_start_sequence"
+	DeliverByTime DeliverPolicy = "by_start_time"
 
 	AckExplicit AckPolicy = "explicit"
 	AckNone     AckPolicy = "none"
@@ -143,30 +143,30 @@ const (
 )
 
 type StreamConfig struct {
-	Name         string          `json:"name"`
-	Description  string          `json:"description,omitempty"`
-	Subjects     []string        `json:"subjects"`
-	Retention    RetentionPolicy `json:"retention"`
-	Storage      StorageType     `json:"storage"`
-	MaxAge       time.Duration   `json:"maxAge,omitempty"`
-	MaxBytes     int64           `json:"maxBytes,omitempty"`
-	MaxMsgs      int64           `json:"maxMsgs,omitempty"`
-	MaxMsgSize   int32           `json:"maxMsgSize,omitempty"`
-	Replicas     int             `json:"replicas"`
-	NoAck        bool            `json:"noAck,omitempty"`
-	Discard      DiscardPolicy   `json:"discard,omitempty"`
-	Duplicates   time.Duration   `json:"duplicates,omitempty"`
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Subjects    []string        `json:"subjects"`
+	Retention   RetentionPolicy `json:"retention"`
+	Storage     StorageType     `json:"storage"`
+	MaxAge      time.Duration   `json:"maxAge,omitempty"`
+	MaxBytes    int64           `json:"maxBytes,omitempty"`
+	MaxMsgs     int64           `json:"maxMsgs,omitempty"`
+	MaxMsgSize  int32           `json:"maxMsgSize,omitempty"`
+	Replicas    int             `json:"replicas"`
+	NoAck       bool            `json:"noAck,omitempty"`
+	Discard     DiscardPolicy   `json:"discard,omitempty"`
+	Duplicates  time.Duration   `json:"duplicates,omitempty"`
 }
 
 type StreamState struct {
-	Messages     uint64    `json:"messages"`
-	Bytes        uint64    `json:"bytes"`
-	FirstSeq     uint64    `json:"firstSeq"`
-	FirstTime    time.Time `json:"firstTime"`
-	LastSeq      uint64    `json:"lastSeq"`
-	LastTime     time.Time `json:"lastTime"`
-	NumSubjects  int       `json:"numSubjects"`
-	NumDeleted   uint64    `json:"numDeleted"`
+	Messages    uint64    `json:"messages"`
+	Bytes       uint64    `json:"bytes"`
+	FirstSeq    uint64    `json:"firstSeq"`
+	FirstTime   time.Time `json:"firstTime"`
+	LastSeq     uint64    `json:"lastSeq"`
+	LastTime    time.Time `json:"lastTime"`
+	NumSubjects int       `json:"numSubjects"`
+	NumDeleted  uint64    `json:"numDeleted"`
 }
 
 type StreamInfo struct {
@@ -226,8 +226,8 @@ type TailedMessage struct {
 	SubjectFilter string            `json:"subjectFilter,omitempty"` // set for raw-NATS subject tails
 	Seq           uint64            `json:"seq"`
 	Timestamp     time.Time         `json:"timestamp"`
-	Payload       string            `json:"payload"`       // base64 for binary
-	PayloadText   string            `json:"payloadText"`   // if valid UTF-8
+	Payload       string            `json:"payload"`     // base64 for binary
+	PayloadText   string            `json:"payloadText"` // if valid UTF-8
 	PayloadSize   int               `json:"payloadSize"`
 	Headers       map[string]string `json:"headers,omitempty"`
 	Redelivered   bool              `json:"redelivered"`
@@ -351,6 +351,44 @@ type DebugAckRequest struct {
 	Action    string `json:"action"` // ack | nak | term
 }
 
+// ── Dead Letter Queue (JetStream advisories) ────────────────────────────────────
+//
+// NATS has no literal DLQ. Instead JetStream emits advisories when a message
+// can't be delivered successfully: MAX_DELIVERIES (a message hit the consumer's
+// MaxDeliver cap) and MSG_TERMINATED (a consumer +TERM'd a message). A DeadLetter
+// is one such "poison message" event captured from those advisories.
+type DeadLetter struct {
+	Type       string `json:"type"` // "max_deliver" | "terminated"
+	Stream     string `json:"stream"`
+	Consumer   string `json:"consumer"`
+	StreamSeq  uint64 `json:"streamSeq"`  // sequence of the offending message in the stream
+	Deliveries int    `json:"deliveries"` // delivery attempts made
+	Reason     string `json:"reason,omitempty"`
+	Timestamp  string `json:"timestamp"` // advisory time (RFC3339, as reported by the server)
+}
+
+// DeadLetterList is the response from GET /clusters/{id}/dlq: the buffered poison
+// events (newest first) plus when the server-side advisory watch started.
+type DeadLetterList struct {
+	Events        []DeadLetter `json:"events"`
+	Count         int          `json:"count"`
+	WatchingSince time.Time    `json:"watchingSince"`
+}
+
+// DeadLetterMessage is the underlying stream message behind a DeadLetter, fetched
+// lazily by stream+seq. Found is false when the message is already gone (acked,
+// purged, or aged out) — the advisory outlives the message it refers to.
+type DeadLetterMessage struct {
+	Stream      string            `json:"stream"`
+	Seq         uint64            `json:"seq"`
+	Subject     string            `json:"subject"`
+	Payload     string            `json:"payload"`
+	PayloadSize int               `json:"payloadSize"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Timestamp   time.Time         `json:"timestamp"`
+	Found       bool              `json:"found"`
+}
+
 // ── Key-Value store ─────────────────────────────────────────────────────────────
 
 // KVBucketInfo summarizes a JetStream KV bucket (backed by a KV_* stream).
@@ -378,9 +416,9 @@ type KVEntry struct {
 type KVBucketConfig struct {
 	Bucket       string `json:"bucket"`
 	Description  string `json:"description,omitempty"`
-	History      int    `json:"history"`      // 1..64
-	TTL          int64  `json:"ttl"`          // seconds (0 = unlimited)
-	Storage      string `json:"storage"`      // file | memory
+	History      int    `json:"history"` // 1..64
+	TTL          int64  `json:"ttl"`     // seconds (0 = unlimited)
+	Storage      string `json:"storage"` // file | memory
 	Replicas     int    `json:"replicas"`
 	MaxValueSize int32  `json:"maxValueSize"` // bytes (0 = unlimited)
 }
@@ -415,10 +453,10 @@ type ObjectEntry struct {
 
 // ObjectData is an object's bytes (base64) for view/download, size-capped.
 type ObjectData struct {
-	Name      string `json:"name"`
-	Size      int    `json:"size"`
-	Base64    string `json:"base64"`
-	TooLarge  bool   `json:"tooLarge,omitempty"`
+	Name     string `json:"name"`
+	Size     int    `json:"size"`
+	Base64   string `json:"base64"`
+	TooLarge bool   `json:"tooLarge,omitempty"`
 }
 
 // ObjectBucketConfig — body for POST /clusters/{id}/obj (create bucket).
@@ -498,9 +536,9 @@ type ThroughputPoint struct {
 	ClusterID string    `json:"clusterId"`
 	NodeID    string    `json:"nodeId,omitempty"`
 	Timestamp time.Time `json:"timestamp"`
-	InMsgs    int64     `json:"inMsgs"`    // msgs/sec
+	InMsgs    int64     `json:"inMsgs"` // msgs/sec
 	OutMsgs   int64     `json:"outMsgs"`
-	InBytes   int64     `json:"inBytes"`   // bytes/sec
+	InBytes   int64     `json:"inBytes"` // bytes/sec
 	OutBytes  int64     `json:"outBytes"`
 }
 
@@ -515,12 +553,12 @@ type LatencyPoint struct {
 }
 
 type ConsumerLagPoint struct {
-	ClusterID  string    `json:"clusterId"`
-	Stream     string    `json:"stream"`
-	Consumer   string    `json:"consumer"`
-	Timestamp  time.Time `json:"timestamp"`
-	Lag        uint64    `json:"lag"`
-	Redeliveries int     `json:"redeliveries"`
+	ClusterID    string    `json:"clusterId"`
+	Stream       string    `json:"stream"`
+	Consumer     string    `json:"consumer"`
+	Timestamp    time.Time `json:"timestamp"`
+	Lag          uint64    `json:"lag"`
+	Redeliveries int       `json:"redeliveries"`
 }
 
 // ── Replay ────────────────────────────────────────────────────────────────────
@@ -540,14 +578,14 @@ type ReplayConfig struct {
 }
 
 type ReplayProgress struct {
-	ID          string    `json:"id"`
-	CurrentSeq  uint64    `json:"currentSeq"`
-	TotalMsgs   uint64    `json:"totalMsgs"`
-	Processed   uint64    `json:"processed"`
-	Rate        float64   `json:"rate"` // msgs/sec
-	ElapsedMs   int64     `json:"elapsedMs"`
-	Done        bool      `json:"done"`
-	Error       string    `json:"error,omitempty"`
+	ID         string  `json:"id"`
+	CurrentSeq uint64  `json:"currentSeq"`
+	TotalMsgs  uint64  `json:"totalMsgs"`
+	Processed  uint64  `json:"processed"`
+	Rate       float64 `json:"rate"` // msgs/sec
+	ElapsedMs  int64   `json:"elapsedMs"`
+	Done       bool    `json:"done"`
+	Error      string  `json:"error,omitempty"`
 }
 
 // SubjectInfo describes a known NATS subject with its stream and source.
@@ -582,8 +620,8 @@ type ConnectionProfile struct {
 	// Pasted credential contents (browser-friendly — materialized to temp files
 	// on connect). Take precedence over the *Path variants above.
 	CredsContent string `json:"credsContent,omitempty"` // full decorated .creds file
-	NKeySeed     string `json:"nkeySeed,omitempty"`      // raw nkey seed (S...)
-	TLSCAContent string `json:"tlsCaContent,omitempty"`  // CA certificate PEM
+	NKeySeed     string `json:"nkeySeed,omitempty"`     // raw nkey seed (S...)
+	TLSCAContent string `json:"tlsCaContent,omitempty"` // CA certificate PEM
 }
 
 // ── WebSocket events ──────────────────────────────────────────────────────────

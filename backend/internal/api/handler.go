@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -113,6 +114,12 @@ func Mount(r chi.Router, hub *gateway.Hub, pool *natsmgr.Pool, dm *discovery.Man
 		// Pull-consumer debugger (fetch + ack/nak/term)
 		r.Post("/clusters/{id}/debug/fetch", h.debugFetch)
 		r.Post("/clusters/{id}/debug/ack", h.debugAck)
+
+		// Dead Letter Queue (JetStream MAX_DELIVERIES + MSG_TERMINATED advisories)
+		r.Get("/clusters/{id}/dlq", h.listDeadLetters)
+		r.Get("/clusters/{id}/dlq/message", h.getDeadLetterMessage)   // ?stream=&seq=
+		r.Post("/clusters/{id}/dlq/redeliver", h.redeliverDeadLetter) // ?stream=&seq=
+		r.Delete("/clusters/{id}/dlq", h.clearDeadLetters)
 
 		// Key-Value (keys via ?key= query param)
 		r.Get("/clusters/{id}/kv", h.listKVBuckets)
@@ -893,6 +900,71 @@ func (h *handler) debugAck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Dead Letter Queue ─────────────────────────────────────────────────────────
+// Captures JetStream MAX_DELIVERIES / MSG_TERMINATED advisories into a per-cluster
+// buffer. The watch starts on the first list call. stream+seq for message/redeliver
+// are passed as query params (stream names are path-safe but kept consistent here).
+
+func (h *handler) listDeadLetters(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	list, err := h.inspector.ListDeadLetters(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// dlqStreamSeq pulls the required ?stream= and ?seq= query params.
+func dlqStreamSeq(r *http.Request) (string, uint64, error) {
+	q := r.URL.Query()
+	stream := q.Get("stream")
+	if stream == "" {
+		return "", 0, fmt.Errorf("stream is required")
+	}
+	seq, err := strconv.ParseUint(q.Get("seq"), 10, 64)
+	if err != nil || seq == 0 {
+		return "", 0, fmt.Errorf("a valid seq is required")
+	}
+	return stream, seq, nil
+}
+
+func (h *handler) getDeadLetterMessage(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	stream, seq, err := dlqStreamSeq(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	msg, err := h.inspector.GetDeadLetterMessage(r.Context(), id, stream, seq)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, msg)
+}
+
+func (h *handler) redeliverDeadLetter(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	stream, seq, err := dlqStreamSeq(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := h.inspector.RedeliverDeadLetter(r.Context(), id, stream, seq)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *handler) clearDeadLetters(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	h.inspector.ClearDeadLetters(id)
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -448,6 +448,37 @@ export interface DebugFetchResult {
   messages:  DebugMessage[]
 }
 
+// ── Dead Letter Queue ─────────────────────────────────────────────────────────
+// Poison-message events captured from JetStream MAX_DELIVERIES / MSG_TERMINATED
+// advisories (NATS has no literal DLQ).
+
+export interface DeadLetter {
+  type:       'max_deliver' | 'terminated'
+  stream:     string
+  consumer:   string
+  streamSeq:  number
+  deliveries: number
+  reason?:    string
+  timestamp:  string
+}
+
+export interface DeadLetterList {
+  events:        DeadLetter[]
+  count:         number
+  watchingSince: string
+}
+
+export interface DeadLetterMessage {
+  stream:      string
+  seq:         number
+  subject:     string
+  payload:     string
+  payloadSize: number
+  headers?:    Record<string, string>
+  timestamp:   string
+  found:       boolean
+}
+
 // ── Request–Reply ─────────────────────────────────────────────────────────────
 
 export interface RequestReplyRequest {

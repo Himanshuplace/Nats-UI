@@ -23,12 +23,19 @@ type Inspector struct {
 	// JetStream ack reply subjects so a later Ack/Nak/Term call can find them.
 	debugMu       sync.Mutex
 	debugSessions map[string]*debugSession
+
+	// Per-cluster Dead Letter Queue watchers: a live subscription to JetStream
+	// MAX_DELIVERIES / MSG_TERMINATED advisories feeding a capped ring buffer, so
+	// GET /dlq returns instantly instead of scanning anything.
+	dlqMu       sync.Mutex
+	dlqWatchers map[string]*dlqWatcher
 }
 
 func NewInspector(pool *natsmgr.Pool) *Inspector {
 	return &Inspector{
 		pool:          pool,
 		debugSessions: make(map[string]*debugSession),
+		dlqWatchers:   make(map[string]*dlqWatcher),
 	}
 }
 

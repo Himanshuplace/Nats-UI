@@ -7,6 +7,7 @@ import type {
   RequestReplyRequest, RequestReplyResult,
   ServiceInfo, ServicePingResult,
   DebugFetchResult,
+  DeadLetterList, DeadLetterMessage,
   RTTResult,
   StreamBackup, RestoreRequest, RestoreResult,
 } from '@/types'
@@ -168,6 +169,15 @@ export const api = {
       post<DebugFetchResult>(`/clusters/${clusterId}/debug/fetch`, { stream, consumer, batch }),
     ack: (clusterId: string, sessionId: string, messageId: string, action: 'ack' | 'nak' | 'term') =>
       post<void>(`/clusters/${clusterId}/debug/ack`, { sessionId, messageId, action }),
+  },
+
+  dlq: {
+    list: (clusterId: string) => get<DeadLetterList>(`/clusters/${clusterId}/dlq`),
+    message: (clusterId: string, stream: string, seq: number) =>
+      get<DeadLetterMessage>(`/clusters/${clusterId}/dlq/message?stream=${encodeURIComponent(stream)}&seq=${seq}`),
+    redeliver: (clusterId: string, stream: string, seq: number) =>
+      post<PublishResult>(`/clusters/${clusterId}/dlq/redeliver?stream=${encodeURIComponent(stream)}&seq=${seq}`, {}),
+    clear: (clusterId: string) => del<void>(`/clusters/${clusterId}/dlq`),
   },
 
   metrics: {

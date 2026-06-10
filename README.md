@@ -14,6 +14,10 @@
 
 ---
 
+> 📋 **Contributors & AI agents:** [`STATUS.md`](./STATUS.md) is the living feature map — what exists,
+> what's a stub, known overlaps/gotchas, and the prioritized backlog. **Read it first.** (The capability
+> table below is aspirational marketing copy — `STATUS.md` is the accurate, current state.)
+
 ## What it is
 
 NatsUI is **not** a CRUD admin dashboard. It is a realtime distributed systems control plane — the kind of tooling senior backend and platform engineers trust in production.

@@ -41,7 +41,7 @@ Legend: ✅ shipped & working · ⚠️ works but thin/static · 🚧 stub / pla
 | Feature | nav id | Frontend | Backend / route | Status |
 |---|---|---|---|---|
 | Overview | `overview` | `layout/AppShell.tsx` (`OverviewView`, inline) | — (static) | ⚠️ static cards + shortcut list; not a live dashboard |
-| Topology (3D) | `topology` | `cluster/ClusterTopology.tsx` + `three/TopologyScene.tsx` | `metrics/aggregator.go` · `GET /clusters/{id}/topology` + WS flow | ✅ incl. Federation & Edge overlay |
+| Topology (3D) | `topology` | `cluster/ClusterTopology.tsx` + `three/TopologyScene.tsx` | `metrics/aggregator.go` · `GET /clusters/{id}/topology` + WS flow | ✅ incl. Federation & Edge overlay · node **load heatmap** (cool cyan=least busy → violet → hot rose=busiest, per-node msg-rate deltas, hot nodes glow brighter; health moved to card/tooltip text) |
 | Metrics | `metrics` | `metrics/MetricsDashboard.tsx` | `GET /clusters/{id}/metrics/throughput` + WS | ✅ |
 | Services (micro) | `services` | `services/ServicesExplorer.tsx` | `jetstream/services.go` · `GET …/services`, `…/services/ping` | ✅ |
 | Health & Alerts | `health` | `health/HealthPanel.tsx` | client-computed from streams+consumers+topology · `GET …/health` | ✅ |

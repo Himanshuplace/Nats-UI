@@ -9,15 +9,15 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Send, Plus, Trash2, CheckCircle2, XCircle,
-  RefreshCw, Code2, ChevronDown, Layers, X,
-  Save, Bookmark, Square, Braces, Clock,
+  RefreshCw, Code2, ChevronDown, ChevronRight, Layers, X,
+  Save, Bookmark, Square, Braces, Clock, Sliders,
 } from 'lucide-react'
 import { useUIStore } from '@/store'
-import type { PublisherTab } from '@/store'
+import type { PublisherTab, PublisherOpts } from '@/store'
 import { api } from '@/lib/api'
 import { cn, Badge, EmptyState } from '@/components/ui'
 import { formatBytes, formatTimestamp } from '@/lib/format'
-import type { PublishResult, SubjectInfo } from '@/types'
+import type { PublishRequest, PublishResult, SubjectInfo } from '@/types'
 
 interface Header { key: string; value: string }
 
@@ -130,6 +130,7 @@ export function MessagePublisher() {
   const [showSaved, setShowSaved]   = useState(false)
   const [showSaveBox, setShowSaveBox] = useState(false)
   const [saveName, setSaveName]     = useState('')
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   // ── Subject autocomplete ──────────────────────────────────────────────────
   const [showSugg, setShowSugg]     = useState(false)
@@ -160,6 +161,16 @@ export function MessagePublisher() {
   const updateActiveTab = useCallback((patch: Partial<PublisherTab>) => {
     setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, ...patch } : t))
   }, [activeTabId, setTabs])
+
+  // Advanced per-tab publish options (delivery mode, encoding, JetStream knobs)
+  const opts: PublisherOpts = activeTab?.opts ?? {}
+  const updateOpts = useCallback((patch: Partial<PublisherOpts>) => {
+    updateActiveTab({ opts: { ...(activeTab?.opts ?? {}), ...patch } })
+  }, [activeTab, updateActiveTab])
+  const advancedCount =
+    (opts.mode && opts.mode !== 'auto' ? 1 : 0) +
+    [opts.replyTo, opts.msgId, opts.expectStream, opts.expectLastSeq, opts.expectLastSubjectSeq, opts.expectLastMsgId]
+      .filter(v => v && String(v).trim()).length
 
   const addTab = useCallback(() => {
     const tab = makeTab()
@@ -251,6 +262,26 @@ export function MessagePublisher() {
     }, {})
     const headersArg = Object.keys(hdrs).length ? hdrs : undefined
 
+    // Build a PublishRequest for message #seq, folding in the advanced options.
+    const o = activeTab.opts ?? {}
+    const buildReq = (seq: number): PublishRequest => {
+      const r: PublishRequest = {
+        subject: substitute(baseSubject, vars, seq),
+        // base64 payloads are raw bytes — don't run {{var}} substitution on them
+        payload: o.encoding === 'base64' ? activeTab.payload : substitute(activeTab.payload, vars, seq),
+        headers: headersArg,
+      }
+      if (o.encoding === 'base64') r.encoding = 'base64'
+      if (o.mode && o.mode !== 'auto') r.mode = o.mode
+      if (o.replyTo?.trim()) r.replyTo = o.replyTo.trim()
+      if (o.msgId?.trim()) r.msgId = substitute(o.msgId.trim(), vars, seq)
+      if (o.expectStream?.trim()) r.expectStream = o.expectStream.trim()
+      const els = o.expectLastSeq?.trim(); if (els) r.expectLastSeq = Number(els)
+      const elss = o.expectLastSubjectSeq?.trim(); if (elss) r.expectLastSubjectSeq = Number(elss)
+      if (o.expectLastMsgId?.trim()) r.expectLastMsgId = o.expectLastMsgId.trim()
+      return r
+    }
+
     // Single send
     if (total === 1) {
       setSendOk(false); setLoading(true)
@@ -259,11 +290,7 @@ export function MessagePublisher() {
         payloadSize: activeTab.payload.length, result: null, error: null, ts: Date.now(),
       }
       try {
-        entry.result = await api.publish(clusterId, {
-          subject: substitute(baseSubject, vars, 1),
-          payload: substitute(activeTab.payload, vars, 1),
-          headers: headersArg,
-        })
+        entry.result = await api.publish(clusterId, buildReq(1))
         setSendOk(true)
         sendTimerRef.current = setTimeout(() => setSendOk(false), 1500)
       } catch (err: any) {
@@ -284,11 +311,7 @@ export function MessagePublisher() {
     for (let i = 1; i <= total; i++) {
       if (burstStop.current) break
       try {
-        await api.publish(clusterId, {
-          subject: substitute(baseSubject, vars, i),
-          payload: substitute(activeTab.payload, vars, i),
-          headers: headersArg,
-        })
+        await api.publish(clusterId, buildReq(i))
         ok++
       } catch (err: any) { fail++; lastErr = err?.message ?? 'publish failed' }
       setBurstSent(i)
@@ -469,21 +492,40 @@ export function MessagePublisher() {
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-2xs font-sans font-medium text-text-muted uppercase tracking-wide">Payload</label>
-              <button
-                onClick={formatJSON}
-                className="flex items-center gap-1 text-2xs font-sans text-text-muted hover:text-accent-primary transition-colors"
-              >
-                <Code2 className="w-3 h-3" /> Format JSON
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Encoding: Text (UTF-8) | Base64 (raw bytes) */}
+                <div className="flex items-center rounded-md border border-bg-border overflow-hidden">
+                  {(['text', 'base64'] as const).map(enc => (
+                    <button
+                      key={enc}
+                      onClick={() => updateOpts({ encoding: enc })}
+                      className={cn('px-2 py-0.5 text-2xs font-mono transition-colors',
+                        (opts.encoding ?? 'text') === enc ? 'bg-accent-primary/15 text-accent-primary' : 'text-text-muted hover:text-text-secondary')}
+                    >
+                      {enc === 'text' ? 'Text' : 'Base64'}
+                    </button>
+                  ))}
+                </div>
+                {(opts.encoding ?? 'text') === 'text' && (
+                  <button
+                    onClick={formatJSON}
+                    className="flex items-center gap-1 text-2xs font-sans text-text-muted hover:text-accent-primary transition-colors"
+                  >
+                    <Code2 className="w-3 h-3" /> Format JSON
+                  </button>
+                )}
+              </div>
             </div>
             <textarea
               value={payload}
               onChange={e => setPayload(e.target.value)}
-              placeholder={'{\n  "key": "value"\n}'}
+              placeholder={(opts.encoding ?? 'text') === 'base64' ? 'SGVsbG8sIE5BVFMh   (base64 → raw bytes)' : '{\n  "key": "value"\n}'}
               rows={9}
               className="w-full bg-bg-surface border border-bg-border rounded-md px-3 py-2 text-xs font-mono text-text-primary placeholder-text-muted outline-none focus:border-accent-primary/50 resize-y transition-colors"
             />
-            <p className="text-2xs font-mono text-text-muted">{formatBytes(payload.length)}</p>
+            <p className="text-2xs font-mono text-text-muted">
+              {formatBytes(payload.length)}{(opts.encoding ?? 'text') === 'base64' && ' · base64 source'}
+            </p>
           </div>
 
           {/* Headers */}
@@ -559,6 +601,52 @@ export function MessagePublisher() {
               </p>
             </div>
           )}
+
+          {/* Advanced — delivery mode + JetStream publish options */}
+          <div className="space-y-2">
+            <button
+              onClick={() => setShowAdvanced(v => !v)}
+              className="flex items-center gap-1.5 text-2xs font-sans font-medium text-text-muted uppercase tracking-wide hover:text-text-secondary transition-colors"
+            >
+              {showAdvanced ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              <Sliders className="w-3 h-3" /> Advanced
+              {advancedCount > 0 && <span className="text-accent-primary normal-case">({advancedCount})</span>}
+            </button>
+
+            {showAdvanced && (
+              <div className="space-y-3 ml-1 pl-2 border-l border-bg-border/50">
+                {/* Delivery mode */}
+                <div className="space-y-1">
+                  <label className="text-2xs font-mono text-text-muted">delivery mode</label>
+                  <div className="flex items-center rounded-md border border-bg-border overflow-hidden w-fit">
+                    {(['auto', 'jetstream', 'core'] as const).map(m => (
+                      <button
+                        key={m}
+                        onClick={() => updateOpts({ mode: m })}
+                        title={m === 'auto' ? 'JetStream if a stream captures it, else core' : m === 'jetstream' ? 'Require a JetStream ack — error if no stream accepts it' : 'Core NATS fire-and-forget (no ack)'}
+                        className={cn('px-2.5 py-1 text-2xs font-mono transition-colors',
+                          (opts.mode ?? 'auto') === m ? 'bg-accent-primary/15 text-accent-primary' : 'text-text-muted hover:text-text-secondary')}
+                      >
+                        {m === 'auto' ? 'Auto' : m === 'jetstream' ? 'JetStream' : 'Core'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <OptField label="reply-to" value={opts.replyTo ?? ''} placeholder="_INBOX.reply (optional)" mono onChange={v => updateOpts({ replyTo: v })} />
+
+                <p className="text-2xs font-mono text-text-muted/70 uppercase tracking-wide pt-1">JetStream</p>
+                <OptField label="msg-id · dedup" value={opts.msgId ?? ''} placeholder="order-{{seq}}  (Nats-Msg-Id)" mono onChange={v => updateOpts({ msgId: v })} />
+                <OptField label="expect stream" value={opts.expectStream ?? ''} placeholder="ORDERS" mono onChange={v => updateOpts({ expectStream: v })} />
+                <OptField label="expect last seq" value={opts.expectLastSeq ?? ''} placeholder="e.g. 41" type="number" onChange={v => updateOpts({ expectLastSeq: v })} />
+                <OptField label="…last subj seq" value={opts.expectLastSubjectSeq ?? ''} placeholder="per-subject last seq" type="number" onChange={v => updateOpts({ expectLastSubjectSeq: v })} />
+                <OptField label="expect last msg-id" value={opts.expectLastMsgId ?? ''} placeholder="previous Nats-Msg-Id" mono onChange={v => updateOpts({ expectLastMsgId: v })} />
+                <p className="text-2xs font-mono text-text-muted/50 leading-relaxed">
+                  Expectations assert stream state before the server accepts the message — a mismatch fails the publish (optimistic concurrency). With these set, a JetStream error is reported instead of silently falling back to core.
+                </p>
+              </div>
+            )}
+          </div>
 
           {/* Count & rate */}
           <div className="space-y-2">
@@ -797,13 +885,15 @@ function HistoryRow({ entry, tabLabel, onResend }: {
           </p>
         )}
         {ok && entry.result && !entry.burst && (
-          <p className="text-2xs font-mono text-accent-green">
-            ✓ accepted
+          <p className={cn('text-2xs font-mono flex flex-wrap items-center gap-x-1.5',
+            entry.result.duplicate ? 'text-accent-yellow' : 'text-accent-green')}>
+            <span>{entry.result.duplicate ? '⚑ duplicate (deduped)' : '✓ accepted'}</span>
+            {entry.result.delivery && <span className="text-text-muted">· {entry.result.delivery}</span>}
             {entry.result.stream && (
-              <> → <span className="text-text-secondary">stream:{entry.result.stream}</span></>
+              <span className="text-accent-green">→ <span className="text-text-secondary">stream:{entry.result.stream}</span></span>
             )}
             {entry.result.seq != null && entry.result.seq > 0 && (
-              <> seq:<span className="text-text-secondary tabular-nums">{entry.result.seq}</span></>
+              <span className="text-accent-green">seq:<span className="text-text-secondary tabular-nums">{entry.result.seq}</span></span>
             )}
           </p>
         )}
@@ -817,6 +907,30 @@ function HistoryRow({ entry, tabLabel, onResend }: {
       >
         ↩
       </button>
+    </div>
+  )
+}
+
+// ── Advanced option field ───────────────────────────────────────────────────────
+
+function OptField({ label, value, placeholder, onChange, type = 'text', mono }: {
+  label: string
+  value: string
+  placeholder?: string
+  onChange: (v: string) => void
+  type?: string
+  mono?: boolean
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <label className="w-28 flex-shrink-0 text-2xs font-mono text-text-muted truncate">{label}</label>
+      <input
+        type={type}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={cn('input-base flex-1', mono && 'font-mono')}
+      />
     </div>
   )
 }

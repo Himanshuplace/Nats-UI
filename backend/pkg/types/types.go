@@ -253,14 +253,31 @@ type PublishRequest struct {
 	Payload string            `json:"payload"`
 	Headers map[string]string `json:"headers,omitempty"`
 	ReplyTo string            `json:"replyTo,omitempty"`
+
+	// Encoding of Payload: "" / "text" (UTF-8) or "base64" (decoded to raw bytes).
+	Encoding string `json:"encoding,omitempty"`
+	// Delivery mode: "" / "auto" (JetStream if a stream captures the subject, else
+	// core), "jetstream" (force; error if no stream accepts it) or "core" (force
+	// fire-and-forget). In auto mode a JS error only falls back to core when no
+	// JetStream options were set — otherwise the error is surfaced.
+	Mode string `json:"mode,omitempty"`
+
+	// JetStream publish options (apply in jetstream / auto mode).
+	MsgID                string  `json:"msgId,omitempty"`                // Nats-Msg-Id → dedup within the stream's duplicate window
+	ExpectStream         string  `json:"expectStream,omitempty"`         // assert the message lands in this stream
+	ExpectLastSeq        *uint64 `json:"expectLastSeq,omitempty"`        // optimistic concurrency: stream's last seq must equal this
+	ExpectLastSubjectSeq *uint64 `json:"expectLastSubjectSeq,omitempty"` // …per-subject last seq
+	ExpectLastMsgID      string  `json:"expectLastMsgId,omitempty"`      // last Nats-Msg-Id must equal this
 }
 
 // PublishResult — response from POST /clusters/{id}/publish.
 type PublishResult struct {
-	Subject  string `json:"subject"`
-	Stream   string `json:"stream,omitempty"`
-	Seq      uint64 `json:"seq,omitempty"`
-	Accepted bool   `json:"accepted"`
+	Subject   string `json:"subject"`
+	Stream    string `json:"stream,omitempty"`
+	Seq       uint64 `json:"seq,omitempty"`
+	Accepted  bool   `json:"accepted"`
+	Duplicate bool   `json:"duplicate,omitempty"` // server detected a duplicate (Nats-Msg-Id dedup)
+	Delivery  string `json:"delivery,omitempty"`  // "jetstream" | "core" — where it actually went
 }
 
 // RequestReplyRequest — body for POST /clusters/{id}/request (core req-reply).

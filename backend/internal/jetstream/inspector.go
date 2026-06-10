@@ -2,6 +2,7 @@ package jetstream
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -610,16 +611,32 @@ func (ins *Inspector) FetchMessages(ctx context.Context, clusterID, stream strin
 
 // ── Publisher ─────────────────────────────────────────────────────────────────
 
-// Publish sends a message to a subject. Prefers JetStream publish (returns stream+seq);
-// falls back to core NATS publish when the subject is not captured by any stream.
+// Publish sends a message to a subject with optional JetStream publish options.
+//
+// Mode controls delivery:
+//   - "core": fire-and-forget core NATS publish.
+//   - "jetstream": require a JetStream ack; error if no stream accepts it.
+//   - "auto"/"": JetStream publish, falling back to core ONLY for a plain publish
+//     whose subject no stream captured. When JetStream options (msg-id / expect-*)
+//     are set, a JS error is meaningful and is surfaced rather than silently
+//     re-published via core — otherwise dedup/expectation guarantees would be lost.
 func (ins *Inspector) Publish(ctx context.Context, clusterID string, req types.PublishRequest) (*types.PublishResult, error) {
 	mc, ok := ins.pool.Get(clusterID)
 	if !ok {
 		return nil, fmt.Errorf("cluster %s not connected", clusterID)
 	}
 
+	data := []byte(req.Payload)
+	if req.Encoding == "base64" {
+		decoded, err := base64.StdEncoding.DecodeString(req.Payload)
+		if err != nil {
+			return nil, fmt.Errorf("invalid base64 payload: %w", err)
+		}
+		data = decoded
+	}
+
 	msg := natsgo.NewMsg(req.Subject)
-	msg.Data = []byte(req.Payload)
+	msg.Data = data
 	if req.ReplyTo != "" {
 		msg.Reply = req.ReplyTo
 	}
@@ -627,22 +644,72 @@ func (ins *Inspector) Publish(ctx context.Context, clusterID string, req types.P
 		msg.Header.Set(k, v)
 	}
 
-	if mc.IsJetStream() {
-		if ack, err := mc.JS.PublishMsg(msg, natsgo.Context(ctx)); err == nil {
-			return &types.PublishResult{
-				Subject:  req.Subject,
-				Stream:   ack.Stream,
-				Seq:      ack.Sequence,
-				Accepted: true,
-			}, nil
+	mode := req.Mode
+	if mode == "" {
+		mode = "auto"
+	}
+	hasJSOpts := req.MsgID != "" || req.ExpectStream != "" || req.ExpectLastSeq != nil ||
+		req.ExpectLastSubjectSeq != nil || req.ExpectLastMsgID != ""
+
+	// Forced core publish. Preserve Nats-Msg-Id as a header so any stream that
+	// happens to capture the subject can still dedup on it.
+	if mode == "core" {
+		if req.MsgID != "" {
+			msg.Header.Set(natsgo.MsgIdHdr, req.MsgID)
 		}
-		// No stream captured this subject — send as core NATS
+		if err := mc.NC.PublishMsg(msg); err != nil {
+			return nil, fmt.Errorf("core publish %q: %w", req.Subject, err)
+		}
+		return &types.PublishResult{Subject: req.Subject, Accepted: true, Delivery: "core"}, nil
 	}
 
+	if mc.IsJetStream() {
+		opts := []natsgo.PubOpt{natsgo.Context(ctx)}
+		if req.MsgID != "" {
+			opts = append(opts, natsgo.MsgId(req.MsgID))
+		}
+		if req.ExpectStream != "" {
+			opts = append(opts, natsgo.ExpectStream(req.ExpectStream))
+		}
+		if req.ExpectLastSeq != nil {
+			opts = append(opts, natsgo.ExpectLastSequence(*req.ExpectLastSeq))
+		}
+		if req.ExpectLastSubjectSeq != nil {
+			opts = append(opts, natsgo.ExpectLastSequencePerSubject(*req.ExpectLastSubjectSeq))
+		}
+		if req.ExpectLastMsgID != "" {
+			opts = append(opts, natsgo.ExpectLastMsgId(req.ExpectLastMsgID))
+		}
+
+		ack, err := mc.JS.PublishMsg(msg, opts...)
+		if err == nil {
+			return &types.PublishResult{
+				Subject:   req.Subject,
+				Stream:    ack.Stream,
+				Seq:       ack.Sequence,
+				Accepted:  true,
+				Duplicate: ack.Duplicate,
+				Delivery:  "jetstream",
+			}, nil
+		}
+		// JetStream publish failed. Surface the error when it's meaningful —
+		// forced jetstream mode, or any expectation/dedup option was set.
+		if mode == "jetstream" || hasJSOpts {
+			return nil, fmt.Errorf("jetstream publish %q: %w", req.Subject, err)
+		}
+		// Plain auto publish: the subject just isn't captured by a stream → core.
+	}
+
+	if mode == "jetstream" {
+		return nil, fmt.Errorf("jetstream not available on this connection")
+	}
+	if req.MsgID != "" {
+		msg.Header.Set(natsgo.MsgIdHdr, req.MsgID)
+	}
 	if err := mc.NC.PublishMsg(msg); err != nil {
 		return nil, fmt.Errorf("publish %q: %w", req.Subject, err)
 	}
-	return &types.PublishResult{Subject: req.Subject, Accepted: true}, nil
+	return &types.PublishResult{Subject: req.Subject, Accepted: true, Delivery: "core"}, nil
 }
 
 // ── Replay ────────────────────────────────────────────────────────────────────

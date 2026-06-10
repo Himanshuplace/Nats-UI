@@ -41,7 +41,7 @@ Legend: ✅ shipped & working · ⚠️ works but thin/static · 🚧 stub / pla
 | Feature | nav id | Frontend | Backend / route | Status |
 |---|---|---|---|---|
 | Overview | `overview` | `layout/AppShell.tsx` (`OverviewView`, inline) | — (static) | ⚠️ static cards + shortcut list; not a live dashboard |
-| Topology (3D) | `topology` | `cluster/ClusterTopology.tsx` + `three/TopologyScene.tsx` | `metrics/aggregator.go` · `GET /clusters/{id}/topology` + WS flow | ✅ incl. Federation & Edge overlay · node **load heatmap** (cool cyan=least busy → violet → hot rose=busiest, per-node msg-rate deltas, hot nodes glow brighter; health moved to card/tooltip text) |
+| Topology (3D) | `topology` | `cluster/ClusterTopology.tsx` + `three/TopologyScene.tsx` | `metrics/aggregator.go` · `GET /clusters/{id}/topology` + WS flow | ✅ incl. Federation & Edge overlay · **"Obsidian Chips" design** (matte hex pucks in ink void; load = progress-ring arc per node, cyan→rose heat ramp from per-node msg-rate deltas; messages = small violet dots, amber=internal; health on card/tooltip text) |
 | Metrics | `metrics` | `metrics/MetricsDashboard.tsx` | `GET /clusters/{id}/metrics/throughput` + WS | ✅ |
 | Services (micro) | `services` | `services/ServicesExplorer.tsx` | `jetstream/services.go` · `GET …/services`, `…/services/ping` | ✅ |
 | Health & Alerts | `health` | `health/HealthPanel.tsx` | client-computed from streams+consumers+topology · `GET …/health` | ✅ |
@@ -62,7 +62,7 @@ Legend: ✅ shipped & working · ⚠️ works but thin/static · 🚧 stub / pla
 |---|---|---|---|---|
 | Live Tail | `tail` | `tail/MessageTail.tsx` | WS (`registerWSHandlers` → `TailStream`) | ✅ live subscribe |
 | Message Browser | `browser` | `tail/MessageBrowser.tsx` | `GET …/streams/{stream}/messages` | ✅ stored, paginated 50/page |
-| Publisher | `publisher` | `publisher/MessagePublisher.tsx` | `POST …/publish` | ✅ templates · `{{vars}}` · burst |
+| Publisher | `publisher` | `publisher/MessagePublisher.tsx` | `POST …/publish` | ✅ templates · `{{vars}}` · burst · **JetStream opts** (Msg-Id dedup, Expect-Stream/Last-Seq/Subj-Seq/Last-Msg-Id) · base64 payload · delivery mode (auto/JS/core) · reply-to |
 | Request–Reply | `request` | `request/RequestReplyConsole.tsx` | `jetstream/request.go` · `POST …/request` | ✅ |
 | Replay Studio | `replay` | `replay/ReplayStudio.tsx` | WS (`handleReplayStart` → `ReplayStream`) | ✅ re-publishes stored msgs |
 | Consumer Lab | `lab` | `debug/ConsumerLab.tsx` | `jetstream/debug.go` · `POST …/debug/fetch`, `…/debug/ack` | ✅ pull-fetch + ack/nak/term |

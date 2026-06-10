@@ -28,12 +28,26 @@ export interface ConsumerViewState {
   selectedConsumer: string | null
 }
 
+// Advanced per-tab publish options (NATS/JetStream protocol knobs). Seq inputs
+// are kept as strings so empty = unset; parsed to numbers when building the request.
+export interface PublisherOpts {
+  mode?: 'auto' | 'jetstream' | 'core'
+  encoding?: 'text' | 'base64'
+  replyTo?: string
+  msgId?: string                 // Nats-Msg-Id (dedup); supports {{templates}}
+  expectStream?: string
+  expectLastSeq?: string
+  expectLastSubjectSeq?: string
+  expectLastMsgId?: string
+}
+
 export interface PublisherTab {
   id: string
   label: string        // editable short name shown on the tab
   subject: string
   payload: string
   headers: { key: string; value: string }[]
+  opts?: PublisherOpts
 }
 
 export interface PublisherViewState {

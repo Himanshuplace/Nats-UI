@@ -204,6 +204,13 @@ export interface PublishRequest {
   payload: string
   headers?: Record<string, string>
   replyTo?: string
+  encoding?: 'text' | 'base64'
+  mode?: 'auto' | 'jetstream' | 'core'
+  msgId?: string
+  expectStream?: string
+  expectLastSeq?: number
+  expectLastSubjectSeq?: number
+  expectLastMsgId?: string
 }
 
 export interface PublishResult {
@@ -211,6 +218,8 @@ export interface PublishResult {
   stream?: string
   seq?: number
   accepted: boolean
+  duplicate?: boolean
+  delivery?: 'jetstream' | 'core'
 }
 
 export interface SubjectInfo {

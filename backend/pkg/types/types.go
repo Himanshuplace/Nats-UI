@@ -38,12 +38,47 @@ const (
 )
 
 type ClusterInfo struct {
-	ID       string        `json:"id"`
-	Name     string        `json:"name"`
-	Nodes    []NodeInfo    `json:"nodes"`
-	Routes   []RouteInfo   `json:"routes"`
-	Health   ClusterHealth `json:"health"`
-	NumNodes int           `json:"numNodes"`
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Nodes     []NodeInfo     `json:"nodes"`
+	Routes    []RouteInfo    `json:"routes"`
+	Gateways  []GatewayConn  `json:"gateways,omitempty"`
+	LeafNodes []LeafNodeConn `json:"leafNodes,omitempty"`
+	Health    ClusterHealth  `json:"health"`
+	NumNodes  int            `json:"numNodes"`
+}
+
+// GatewayConn is one gateway connection from a server in THIS cluster to a
+// remote cluster — the building block of a NATS supercluster. Direction is
+// "outbound" (we dial them) or "inbound" (they dialed us).
+type GatewayConn struct {
+	ServerID       string  `json:"serverId"`      // local server holding this gateway conn
+	ServerName     string  `json:"serverName"`
+	RemoteCluster  string  `json:"remoteCluster"` // gateway/cluster name on the other side
+	Direction      string  `json:"direction"`     // outbound | inbound
+	Configured     bool    `json:"configured"`
+	NumConnections int     `json:"numConnections,omitempty"` // inbound side can have several
+	IP             string  `json:"ip,omitempty"`
+	Port           int     `json:"port,omitempty"`
+	RTTMs          float64 `json:"rttMs,omitempty"`
+	Healthy        bool    `json:"healthy"`
+}
+
+// LeafNodeConn is one leaf-node connection attached to a server in this cluster
+// (an edge/spoke NATS server or client extending the hub).
+type LeafNodeConn struct {
+	ServerID      string  `json:"serverId"`   // hub server the leaf is attached to
+	ServerName    string  `json:"serverName"`
+	Name          string  `json:"name"`       // remote leaf server name, when reported
+	Account       string  `json:"account"`
+	IP            string  `json:"ip,omitempty"`
+	Port          int     `json:"port,omitempty"`
+	RTTMs         float64 `json:"rttMs,omitempty"`
+	Subscriptions int64   `json:"subscriptions"`
+	InMsgs        int64   `json:"inMsgs"`
+	OutMsgs       int64   `json:"outMsgs"`
+	InBytes       int64   `json:"inBytes"`
+	OutBytes      int64   `json:"outBytes"`
 }
 
 type NodeInfo struct {

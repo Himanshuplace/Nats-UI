@@ -6,12 +6,12 @@
  */
 import { Suspense, lazy, useEffect, useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Server, Cpu, Boxes, AlertTriangle, Check } from 'lucide-react'
+import { Server, Cpu, Boxes, AlertTriangle, Check, Network, Leaf, ArrowRight, ArrowLeft } from 'lucide-react'
 import { useDataStore, useUIStore } from '@/store'
 import { api } from '@/lib/api'
 import { HealthDot, Badge, Spinner, Button, cn } from '@/components/ui'
 import { formatNumber } from '@/lib/format'
-import type { ClusterInfo } from '@/types'
+import type { ClusterInfo, GatewayConn, LeafNodeConn } from '@/types'
 
 const GPU_ACK_KEY = 'natsui-topology-gpu-ack'
 
@@ -238,9 +238,97 @@ function ClusterView({ cluster }: { cluster: ClusterInfo }) {
             externalOnly={externalOnly}
           />
         </Suspense>
+
+        {/* Federation & edge links overlay — only when gateways/leaf nodes exist */}
+        <FederationOverlay cluster={cluster} />
       </div>
     </div>
   )
+}
+
+// ── Federation & edge overlay ─────────────────────────────────────────────────
+
+/** One remote cluster's gateway link, merged across direction + per-server conns. */
+interface GatewayLink {
+  remote: string
+  outbound: boolean
+  inbound: boolean
+  connections: number
+  rttMs: number
+}
+
+function groupGateways(gws: GatewayConn[]): GatewayLink[] {
+  const byRemote = new Map<string, GatewayLink>()
+  for (const g of gws) {
+    const link = byRemote.get(g.remoteCluster) ?? {
+      remote: g.remoteCluster, outbound: false, inbound: false, connections: 0, rttMs: 0,
+    }
+    if (g.direction === 'outbound') link.outbound = true
+    else link.inbound = true
+    link.connections += g.numConnections && g.numConnections > 0 ? g.numConnections : 1
+    if (g.rttMs && g.rttMs > link.rttMs) link.rttMs = g.rttMs
+    byRemote.set(g.remoteCluster, link)
+  }
+  return [...byRemote.values()].sort((a, b) => a.remote.localeCompare(b.remote))
+}
+
+function FederationOverlay({ cluster }: { cluster: ClusterInfo }) {
+  const gateways = useMemo(() => groupGateways(cluster.gateways ?? []), [cluster.gateways])
+  const leafs: LeafNodeConn[] = cluster.leafNodes ?? []
+
+  if (gateways.length === 0 && leafs.length === 0) return null
+
+  return (
+    <div className="absolute bottom-3 left-3 w-[290px] max-h-[60%] overflow-y-auto rounded-xl border border-bg-border/70 bg-bg-base/80 backdrop-blur-md shadow-xl animate-fade-in">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-bg-border/50">
+        <Network className="w-3.5 h-3.5 text-accent-primary" />
+        <span className="text-2xs font-sans font-semibold text-text-primary tracking-wide uppercase">Federation &amp; Edge</span>
+      </div>
+
+      {gateways.length > 0 && (
+        <div className="px-3 py-2.5">
+          <div className="text-2xs font-mono text-text-muted mb-1.5">Gateways · supercluster</div>
+          <div className="space-y-1.5">
+            {gateways.map(g => (
+              <div key={g.remote} className="flex items-center gap-2">
+                <span className="flex items-center gap-0.5 text-accent-primary">
+                  {g.outbound && <ArrowRight className="w-3 h-3" />}
+                  {g.inbound && <ArrowLeft className="w-3 h-3" />}
+                </span>
+                <span className="text-xs font-mono font-semibold text-text-primary truncate flex-1">{g.remote}</span>
+                <Badge variant="default" size="xs">{g.connections} conn</Badge>
+                {g.rttMs > 0 && <span className="text-2xs font-mono text-accent-cyan tabular-nums">{fmtMs(g.rttMs)}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {leafs.length > 0 && (
+        <div className="px-3 py-2.5 border-t border-bg-border/40">
+          <div className="text-2xs font-mono text-text-muted mb-1.5">Leaf nodes · {leafs.length}</div>
+          <div className="space-y-1.5">
+            {leafs.map((l, i) => (
+              <div key={`${l.serverId}-${i}`} className="flex items-center gap-2">
+                <Leaf className="w-3 h-3 text-accent-green flex-shrink-0" />
+                <span className="text-xs font-mono text-text-primary truncate flex-1" title={l.name || l.account}>
+                  {l.name || l.account || 'leaf'}
+                </span>
+                <span className="text-2xs font-mono text-text-muted tabular-nums">{formatNumber(l.subscriptions)} subs</span>
+                {l.rttMs ? <span className="text-2xs font-mono text-accent-cyan tabular-nums">{fmtMs(l.rttMs)}</span> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function fmtMs(ms: number): string {
+  if (ms < 1) return `${ms.toFixed(2)}ms`
+  if (ms < 10) return `${ms.toFixed(2)}ms`
+  return `${ms.toFixed(1)}ms`
 }
 
 function MetaChip({ label, value, color }: { label: string; value: string; color?: string }) {

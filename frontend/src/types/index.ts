@@ -45,11 +45,41 @@ export interface RouteInfo {
   healthy: boolean
 }
 
+export interface GatewayConn {
+  serverId: string
+  serverName: string
+  remoteCluster: string
+  direction: 'outbound' | 'inbound'
+  configured: boolean
+  numConnections?: number
+  ip?: string
+  port?: number
+  rttMs?: number
+  healthy: boolean
+}
+
+export interface LeafNodeConn {
+  serverId: string
+  serverName: string
+  name: string
+  account: string
+  ip?: string
+  port?: number
+  rttMs?: number
+  subscriptions: number
+  inMsgs: number
+  outMsgs: number
+  inBytes: number
+  outBytes: number
+}
+
 export interface ClusterInfo {
   id: string
   name: string
   nodes: NodeInfo[]
   routes: RouteInfo[]
+  gateways?: GatewayConn[]
+  leafNodes?: LeafNodeConn[]
   health: ClusterHealth
   numNodes: number
 }

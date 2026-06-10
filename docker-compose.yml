@@ -118,6 +118,42 @@ services:
       app: nats
       natsui.discover: "true"
 
+  # ── Federation demo (opt-in) ──────────────────────────────────
+  # Edge cluster + leaf node that attach to the main cluster to demonstrate
+  # gateway (supercluster) and leaf-node topology in the UI. Off by default;
+  # enable with:  docker compose --profile federation up -d
+  # nats1 already exposes the inert gateway (:7222) and leafnode (:7422)
+  # listeners; these containers dial into them.
+  nats-edge:
+    image: nats:2.10-alpine
+    container_name: nats-edge
+    hostname: nats-edge
+    profiles: ["federation"]
+    command: ["-c", "/etc/nats/nats.conf"]
+    volumes:
+      - ./nats-config/nats-edge.conf:/etc/nats/nats.conf:ro
+    networks:
+      - natsui
+    depends_on:
+      - nats1
+    labels:
+      app: nats
+
+  nats-leaf:
+    image: nats:2.10-alpine
+    container_name: nats-leaf
+    hostname: nats-leaf
+    profiles: ["federation"]
+    command: ["-c", "/etc/nats/nats.conf"]
+    volumes:
+      - ./nats-config/nats-leaf.conf:/etc/nats/nats.conf:ro
+    networks:
+      - natsui
+    depends_on:
+      - nats1
+    labels:
+      app: nats
+
   # ── NatsUI Backend ────────────────────────────────────────────
   backend:
     build:

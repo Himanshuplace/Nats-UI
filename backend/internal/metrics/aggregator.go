@@ -186,6 +186,8 @@ func (a *Aggregator) CollectClusterTopology(ctx context.Context, mc *natsmgr.Man
 	}
 
 	var nodes []types.NodeInfo
+	var gateways []types.GatewayConn
+	var leafNodes []types.LeafNodeConn
 	clusterName := mc.Profile.Name
 
 	for _, addr := range addrs {
@@ -232,6 +234,11 @@ func (a *Aggregator) CollectClusterTopology(ctx context.Context, mc *natsmgr.Man
 			node.Health = types.HealthDegraded
 		}
 		nodes = append(nodes, node)
+
+		// Federation/edge links: gateways (supercluster) + leaf nodes (spokes).
+		// Best-effort — endpoints are absent unless the server is configured for them.
+		gateways = append(gateways, a.fetchGateways(ctx, addr.host, mp, node.ID, node.Name)...)
+		leafNodes = append(leafNodes, a.fetchLeafNodes(ctx, addr.host, mp, node.ID, node.Name)...)
 	}
 
 	if len(nodes) == 0 {
@@ -251,12 +258,14 @@ func (a *Aggregator) CollectClusterTopology(ctx context.Context, mc *natsmgr.Man
 	}
 
 	cluster := &types.ClusterInfo{
-		ID:       mc.ID,
-		Name:     clusterName,
-		Nodes:    nodes,
-		Routes:   routes,
-		Health:   types.HealthOK,
-		NumNodes: len(nodes),
+		ID:        mc.ID,
+		Name:      clusterName,
+		Nodes:     nodes,
+		Routes:    routes,
+		Gateways:  gateways,
+		LeafNodes: leafNodes,
+		Health:    types.HealthOK,
+		NumNodes:  len(nodes),
 	}
 
 	for _, n := range nodes {
@@ -306,6 +315,144 @@ func (a *Aggregator) fetchRoutez(ctx context.Context, host string, monitorPort i
 		}
 	}
 	return out, nil
+}
+
+// fetchMonitorObj GETs a monitoring endpoint and decodes the top-level JSON object.
+func (a *Aggregator) fetchMonitorObj(ctx context.Context, host string, monPort int, path string) (map[string]any, error) {
+	if monPort == 0 {
+		monPort = 8222
+	}
+	endpoint := fmt.Sprintf("http://%s:%d/%s", host, monPort, path)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s: status %d", path, resp.StatusCode)
+	}
+	var v map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+// fetchGateways reads /gatewayz and returns this server's gateway connections to
+// remote clusters (both outbound and inbound). Best-effort: returns nil when the
+// server has no gateways configured or the endpoint is unavailable.
+func (a *Aggregator) fetchGateways(ctx context.Context, host string, monPort int, serverID, serverName string) []types.GatewayConn {
+	v, err := a.fetchMonitorObj(ctx, host, monPort, "gatewayz")
+	if err != nil {
+		return nil
+	}
+	var out []types.GatewayConn
+
+	// outbound_gateways: map[remoteCluster] -> { configured, connection {...} }
+	if om, ok := v["outbound_gateways"].(map[string]any); ok {
+		for remote, raw := range om {
+			m, _ := raw.(map[string]any)
+			gc := types.GatewayConn{
+				ServerID:      serverID,
+				ServerName:    serverName,
+				RemoteCluster: remote,
+				Direction:     "outbound",
+				Configured:    boolOrFalse(m["configured"]),
+			}
+			if conn, ok := m["connection"].(map[string]any); ok {
+				gc.IP = stringOrEmpty(conn["ip"])
+				gc.Port = int(int64OrZero(conn["port"]))
+				gc.RTTMs = parseRTTms(conn["rtt"])
+				gc.Healthy = true
+			}
+			out = append(out, gc)
+		}
+	}
+
+	// inbound_gateways: map[remoteCluster] -> [ { connection {...} }, ... ]
+	if im, ok := v["inbound_gateways"].(map[string]any); ok {
+		for remote, raw := range im {
+			arr, ok := raw.([]any)
+			if !ok || len(arr) == 0 {
+				continue
+			}
+			gc := types.GatewayConn{
+				ServerID:       serverID,
+				ServerName:     serverName,
+				RemoteCluster:  remote,
+				Direction:      "inbound",
+				NumConnections: len(arr),
+				Healthy:        true,
+			}
+			if first, ok := arr[0].(map[string]any); ok {
+				gc.Configured = boolOrFalse(first["configured"])
+				if conn, ok := first["connection"].(map[string]any); ok {
+					gc.IP = stringOrEmpty(conn["ip"])
+					gc.Port = int(int64OrZero(conn["port"]))
+					gc.RTTMs = parseRTTms(conn["rtt"])
+				}
+			}
+			out = append(out, gc)
+		}
+	}
+	return out
+}
+
+// fetchLeafNodes reads /leafz and returns the leaf-node connections attached to
+// this server. Best-effort: nil when no leaf nodes / endpoint unavailable.
+func (a *Aggregator) fetchLeafNodes(ctx context.Context, host string, monPort int, serverID, serverName string) []types.LeafNodeConn {
+	v, err := a.fetchMonitorObj(ctx, host, monPort, "leafz")
+	if err != nil {
+		return nil
+	}
+	raw, ok := v["leafs"].([]any)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	out := make([]types.LeafNodeConn, 0, len(raw))
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		out = append(out, types.LeafNodeConn{
+			ServerID:      serverID,
+			ServerName:    serverName,
+			Name:          stringOrEmpty(m["name"]),
+			Account:       stringOrEmpty(m["account"]),
+			IP:            stringOrEmpty(m["ip"]),
+			Port:          int(int64OrZero(m["port"])),
+			RTTMs:         parseRTTms(m["rtt"]),
+			Subscriptions: int64OrZero(m["subscriptions"]),
+			InMsgs:        int64OrZero(m["in_msgs"]),
+			OutMsgs:       int64OrZero(m["out_msgs"]),
+			InBytes:       int64OrZero(m["in_bytes"]),
+			OutBytes:      int64OrZero(m["out_bytes"]),
+		})
+	}
+	return out
+}
+
+// parseRTTms converts a NATS duration string (e.g. "1.2ms", "350µs") to ms.
+func parseRTTms(v any) float64 {
+	s, ok := v.(string)
+	if !ok || s == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0
+	}
+	return float64(d.Microseconds()) / 1000.0
+}
+
+func boolOrFalse(v any) bool {
+	b, ok := v.(bool)
+	return ok && b
 }
 
 // FetchAccounts retrieves account information from the NATS monitoring endpoint.

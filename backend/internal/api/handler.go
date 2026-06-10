@@ -234,12 +234,14 @@ func (h *handler) handleFlowStart(clientID string, payload json.RawMessage) {
 	h.cancels[cancelKey] = cancel
 	h.cancelsMu.Unlock()
 
+	// NOTE: the goroutine must NOT delete its cancel entry when it exits. On a
+	// restart (e.g. the "All traffic" toggle) the superseded goroutine would
+	// run its deferred delete AFTER the new run registered the same key,
+	// orphaning the new subscription — flow.stop could never reach it and
+	// re-toggles stacked duplicate ">" subscriptions. Entries are removed by
+	// the *Stop handlers, the disconnect cleanup, or overwritten on restart;
+	// a stale entry just means a harmless cancel() of a dead context.
 	go func() {
-		defer func() {
-			h.cancelsMu.Lock()
-			delete(h.cancels, cancelKey)
-			h.cancelsMu.Unlock()
-		}()
 		err := h.inspector.FlowSample(ctx, req.ClusterID, req.IncludeInternal, func(ev jetstream.FlowEvent) {
 			h.hub.SendToClient(clientID, gateway.EventTopologyFlow, ev)
 		})
@@ -299,15 +301,11 @@ func (h *handler) handleTailStart(clientID string, payload json.RawMessage) {
 	})
 
 	go func() {
-		defer func() {
-			h.cancelsMu.Lock()
-			delete(h.cancels, cancelKey)
-			h.cancelsMu.Unlock()
-			h.hub.Broadcast(gateway.EventTailStopped, map[string]string{
-				"clusterId": req.ClusterID,
-				"stream":    req.Stream,
-			})
-		}()
+		// No cancel-map delete here — see the restart-race note in handleFlowStart.
+		defer h.hub.Broadcast(gateway.EventTailStopped, map[string]string{
+			"clusterId": req.ClusterID,
+			"stream":    req.Stream,
+		})
 
 		err := h.inspector.TailStream(ctx, req.ClusterID, req.Stream, func(msg types.TailedMessage) {
 			h.hub.SendToClient(clientID, gateway.EventMessageReceived, msg)
@@ -369,15 +367,11 @@ func (h *handler) handleSubjectTailStart(clientID string, payload json.RawMessag
 	})
 
 	go func() {
-		defer func() {
-			h.cancelsMu.Lock()
-			delete(h.cancels, cancelKey)
-			h.cancelsMu.Unlock()
-			h.hub.Broadcast(gateway.EventTailStopped, map[string]string{
-				"clusterId":     req.ClusterID,
-				"subjectFilter": req.Subject,
-			})
-		}()
+		// No cancel-map delete here — see the restart-race note in handleFlowStart.
+		defer h.hub.Broadcast(gateway.EventTailStopped, map[string]string{
+			"clusterId":     req.ClusterID,
+			"subjectFilter": req.Subject,
+		})
 
 		err := h.inspector.TailSubject(ctx, req.ClusterID, req.Subject, func(msg types.TailedMessage) {
 			h.hub.SendToClient(clientID, gateway.EventMessageReceived, msg)
@@ -430,11 +424,7 @@ func (h *handler) handleReplayStart(clientID string, payload json.RawMessage) {
 	h.cancelsMu.Unlock()
 
 	go func() {
-		defer func() {
-			h.cancelsMu.Lock()
-			delete(h.cancels, cancelKey)
-			h.cancelsMu.Unlock()
-		}()
+		// No cancel-map delete here — see the restart-race note in handleFlowStart.
 		h.inspector.ReplayStream(ctx, cfg, func(progress types.ReplayProgress) {
 			h.hub.Broadcast(gateway.EventReplayProgress, progress)
 		})
